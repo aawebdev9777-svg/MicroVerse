@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { Shield, UserPlus, LogIn, AlertCircle, Cpu, Lock, User } from 'lucide-react';
+import { Shield, UserPlus, LogIn, AlertCircle, Cpu, Lock, User, Terminal } from 'lucide-react';
 import { logSystem } from '../lib/systemLogger';
 
 interface AuthScreenProps {
@@ -65,17 +65,23 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                 logSystem('AUTH: Identity registration complete. Public Key Generated.', 'success');
             }
         } catch (err: any) {
-            console.error(err);
+            console.error("Firebase Auth Error:", err);
             
             let msg = "Authentication Failed.";
             
-            if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email') msg = "Identity Not Found.";
+            // Common User Errors
+            if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email' || err.code === 'auth/invalid-credential') msg = "Identity Not Found or Invalid Credentials.";
             if (err.code === 'auth/wrong-password') msg = "Invalid Credentials.";
             if (err.code === 'auth/email-already-in-use') msg = "Username Taken.";
             if (err.code === 'auth/weak-password') msg = "Password Too Weak.";
             
+            // Configuration Errors (The specific error user reported)
+            if (err.code === 'auth/configuration-not-found') msg = "CONFIG ERROR: Email/Password Sign-in is disabled in Firebase Console.";
+            if (err.code === 'auth/network-request-failed') msg = "Network Error. Check connection.";
+            if (err.code === 'auth/api-key-not-valid') msg = "Invalid API Key in configuration.";
+            
             setError(msg);
-            logSystem(`AUTH ERROR: ${msg}`, 'error');
+            logSystem(`AUTH ERROR: ${msg} (${err.code})`, 'error');
         } finally {
             setLoading(false);
         }
@@ -149,9 +155,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                         </div>
 
                         {error && (
-                            <div className="bg-red-950/30 border border-red-900/50 rounded-lg p-3 flex items-center gap-3 text-red-400 text-xs animate-in slide-in-from-top-2">
-                                <AlertCircle size={16} className="shrink-0" />
-                                <span>{error}</span>
+                            <div className="bg-red-950/30 border border-red-900/50 rounded-lg p-3 flex items-start gap-3 text-red-400 text-xs animate-in slide-in-from-top-2">
+                                <AlertCircle size={16} className="shrink-0 mt-0.5" />
+                                <span className="flex-1 leading-relaxed">{error}</span>
                             </div>
                         )}
 
@@ -169,6 +175,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                         <p className="text-[10px] text-zinc-700 font-mono mt-1">NODE: {Math.random().toString(16).substr(2, 8).toUpperCase()}</p>
                     </div>
                 </div>
+                
+                {/* Deployment Hint for Developer/User */}
+                {error && error.includes('CONFIG ERROR') && (
+                    <div className="mt-4 p-4 bg-zinc-900/90 border border-yellow-700/50 rounded-lg text-[10px] text-yellow-500 font-mono">
+                        <div className="flex items-center gap-2 font-bold mb-2">
+                            <Terminal size={12} /> SYSTEM ADVISORY
+                        </div>
+                        <p className="mb-2">The remote authentication node is rejecting the configuration.</p>
+                        <p>ACTION REQUIRED:</p>
+                        <ol className="list-decimal ml-4 space-y-1 text-zinc-400">
+                            <li>Open Firebase Console for project <span className="text-white">microverse-d8112</span></li>
+                            <li>Navigate to <span className="text-white">Authentication</span> &gt; <span className="text-white">Sign-in method</span></li>
+                            <li>Enable <span className="text-white">Email/Password</span> provider</li>
+                        </ol>
+                    </div>
+                )}
             </div>
         </div>
     );
