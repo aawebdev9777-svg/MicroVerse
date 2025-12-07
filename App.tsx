@@ -66,50 +66,6 @@ interface OpenWindow {
     size?: { width: number, height: number };
 }
 
-// Audio helpers
-function createBlob(data: Float32Array): { data: string, mimeType: string } {
-    const l = data.length;
-    const int16 = new Int16Array(l);
-    for (let i = 0; i < l; i++) {
-        int16[i] = data[i] * 32768;
-    }
-    let binary = '';
-    const bytes = new Uint8Array(int16.buffer);
-    const len = bytes.byteLength;
-    for (let i = 0; i < len; i++) {
-        binary += String.fromCharCode(bytes[i]);
-    }
-    return {
-        data: btoa(binary),
-        mimeType: 'audio/pcm;rate=16000',
-    };
-}
-
-function decode(base64: string) {
-    const binaryString = atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    return bytes;
-}
-
-async function decodeAudioData(data: Uint8Array, ctx: AudioContext, sampleRate: number, numChannels: number): Promise<AudioBuffer> {
-    const dataInt16 = new Int16Array(data.buffer);
-    const frameCount = dataInt16.length / numChannels;
-    const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);
-
-    for (let channel = 0; channel < numChannels; channel++) {
-        const channelData = buffer.getChannelData(channel);
-        for (let i = 0; i < frameCount; i++) {
-            channelData[i] = dataInt16[i * numChannels + channel] / 32768.0;
-        }
-    }
-    return buffer;
-}
-
-
 export const App: React.FC = () => {
     // isLocked = System BIOS Password Screen
     const [isLocked, setIsLocked] = useState(true);
@@ -132,14 +88,39 @@ export const App: React.FC = () => {
     // Security / Breach State
     const [isPurged, setIsPurged] = useState(false);
     const [securityAlert, setSecurityAlert] = useState<string | null>(null);
-    
-    // Live API State
-    const [isLive, setIsLive] = useState(false);
-    const audioContextRef = useRef<AudioContext | null>(null);
-    const nextStartTimeRef = useRef<number>(0);
-    const sessionRef = useRef<any>(null);
-
     const timeoutRef = useRef<number | null>(null);
+
+    // --- GLOBAL SURVEILLANCE LISTENERS ---
+    useEffect(() => {
+        // Tracker Logic
+        const handleClick = (e: MouseEvent) => {
+            const target = e.target as HTMLElement;
+            const targetName = target.innerText?.substring(0, 20) || target.tagName || 'UNKNOWN_ELEMENT';
+            const location = `${e.clientX}x${e.clientY}`;
+            
+            logSystem(`INPUT: CLICK @ [${location}] -> "${targetName}"`, 'interaction', {
+                x: e.clientX,
+                y: e.clientY,
+                target: target.tagName,
+                class: target.className
+            });
+        };
+
+        const handleKeydown = (e: KeyboardEvent) => {
+            const ignored = ['Shift', 'Control', 'Alt', 'Meta'];
+            if (!ignored.includes(e.key)) {
+                logSystem(`INPUT: KEY_PRESS -> [${e.key.toUpperCase()}]`, 'interaction', { key: e.key, code: e.code });
+            }
+        };
+
+        window.addEventListener('click', handleClick);
+        window.addEventListener('keydown', handleKeydown);
+
+        return () => {
+            window.removeEventListener('click', handleClick);
+            window.removeEventListener('keydown', handleKeydown);
+        };
+    }, []); 
 
     // Initialize Auth & Data Sync Listener
     useEffect(() => {
@@ -159,7 +140,7 @@ export const App: React.FC = () => {
                         setUserProfile(data);
                         
                         // Add Admin App if user is admin
-                        if (data.username === 'admin') {
+                        if (data.role === 'admin') {
                             setDesktopItems(prev => {
                                 if (prev.find(i => i?.id === 'admin_console')) return prev;
                                 return [
@@ -175,11 +156,13 @@ export const App: React.FC = () => {
                     const duration = Math.floor((Date.now() - sessionStartTime.getTime()) / 1000);
                     logSystem(`SESSION END: Duration ${duration}s`, 'warning');
                 }
-                setUser(null);
-                setUserProfile(null);
-                setSessionStartTime(null);
+                // Do not auto-clear user if we are in manual bypass mode (user.isAnonymous && session active)
+                if (!user?.isAnonymous) {
+                     setUser(null);
+                     setUserProfile(null);
+                     setSessionStartTime(null);
+                }
                 if (unsubscribeProfile) unsubscribeProfile();
-                logSystem('AUTH: Uplink severed.', 'warning');
             }
         });
         
@@ -187,86 +170,23 @@ export const App: React.FC = () => {
             unsubscribeAuth();
             if (unsubscribeProfile) unsubscribeProfile();
         };
-    }, []); // eslint-disable-line
+    }, [user, sessionStartTime]);
 
-    const showToast = useCallback((message: string, title?: string, success: boolean = false) => {
-        setToast({
-            message,
-            title,
-            type: success ? 'info' : 'error'
-        });
-        if (timeoutRef.current) {
-            clearTimeout(timeoutRef.current);
-        }
-        timeoutRef.current = window.setTimeout(() => setToast(null), 4000);
-    }, []);
-
-    const handleBypassLogin = (mockUser: any) => {
-        setUser(mockUser);
-        
-        // Setup Admin Env if needed
-        if (mockUser.email.includes('admin')) {
-             setUserProfile({ username: 'admin', email: mockUser.email, role: 'admin', messageCode: 'ROOT' });
-             setDesktopItems(prev => {
-                if (prev.find(i => i?.id === 'admin_console')) return prev;
-                return [
-                    { id: 'admin_console', name: 'GOD MODE', type: 'app', icon: Eye, appId: 'admin', bgColor: 'bg-red-900 border border-red-500 shadow-[0_0_15px_rgba(255,0,0,0.3)]' },
-                    ...prev
-                ];
-            });
-        } else {
-             setUserProfile({ username: 'Operative', email: mockUser.email, role: 'operative', messageCode: 'BYPASS' });
-        }
-
-        logSystem(`IDENTITY OVERRIDE: ADMIN ACCESS GRANTED TO ${mockUser.email}`, 'success');
-        showToast("ADMIN CREDENTIALS ACCEPTED", "SYSTEM OVERRIDE", true);
-    };
-
-    // BACKDOOR LISTENER FOR HACKER CODE
+    // Red Team Event Listener (Simulated Hack)
     useEffect(() => {
-        const handleBreach = async (e: any) => {
-            // 1. Initial Alarm
-            logSystem("CRITICAL SECURITY EVENT: ROOT ACCESS BREACHED", "error");
-            setSecurityAlert("INTRUSION DETECTED");
-            setToast({ title: "SECURITY ALERT", message: "External IP detected accessing core files.", type: 'error' });
+        const handleBreach = () => {
+            setSecurityAlert("CRITICAL SECURITY COMPROMISE DETECTED");
             
-            // 2. Simulated Defense (Wait 2s)
-            await new Promise(r => setTimeout(r, 2000));
-            logSystem("DEFENSE PROTOCOL: ENGAGING LOCKDOWN...", "warning");
-            setSecurityAlert("ATTEMPTING LOCKDOWN...");
-            setToast({ title: "SYSTEM DEFENSE", message: "Rerouting traffic through proxy...", type: 'info' });
+            setTimeout(() => {
+                 setToast({ title: "SYSTEM FAILURE", message: "Core files corrupted. Purging buffers...", type: 'error' });
+                 setIsPurged(true);
+            }, 2000);
 
-            // 3. Defense Failure (Wait 2s)
-            await new Promise(r => setTimeout(r, 2000));
-            logSystem("DEFENSE FAILED. ENCRYPTION KEYS EXPOSED.", "error");
-            setSecurityAlert("SYSTEM COMPROMISED");
-            setToast({ title: "CRITICAL FAILURE", message: "Defense systems offline. Data exfiltration in progress.", type: 'error' });
-
-            // 4. Protocol Zero: Self Destruct (Wait 1s)
-            await new Promise(r => setTimeout(r, 1000));
-            logSystem("INITIATING SCORCHED EARTH PROTOCOL: DELETING LOCAL ASSETS", "error");
-            setSecurityAlert("SELF DESTRUCT SEQUENCE");
-            
-            // 5. Delete Items Loop
-            const deleteInterval = setInterval(() => {
-                setDesktopItems(prev => {
-                    const realItems = prev.filter(i => i !== null);
-                    if(realItems.length === 0) {
-                        clearInterval(deleteInterval);
-                        setTimeout(() => setIsPurged(true), 1000);
-                        return [];
-                    }
-                    
-                    const newItems = [...prev];
-                    const indices = newItems.map((item, idx) => item ? idx : -1).filter(i => i !== -1);
-                    if (indices.length > 0) {
-                        const randomIdx = indices[Math.floor(Math.random() * indices.length)];
-                        newItems[randomIdx] = null;
-                        logSystem(`DELETING ASSET: ${prev[randomIdx]?.name}`, 'error');
-                    }
-                    return newItems;
-                });
-            }, 200);
+            setTimeout(() => {
+                setIsPurged(false);
+                setSecurityAlert(null);
+                setToast({ title: "RECOVERY", message: "System restored from secure backup.", type: 'info' });
+            }, 6000);
         };
 
         window.addEventListener('trigger-breach', handleBreach);
@@ -274,143 +194,199 @@ export const App: React.FC = () => {
     }, []);
 
     const launchApp = (item: DesktopItem) => {
-        if (item.type === 'folder') return;
-        
-        let initialW = 800;
-        let initialH = 600;
-        
-        if (item.appId === 'chat') {
-            initialW = 1000;
-            initialH = 750;
+        if (item.type === 'folder') {
+            createWindow(item);
+            return;
         }
+        createWindow(item);
+        logSystem(`EXEC: Launching ${item.name}...`, 'kernel');
+    };
 
+    const createWindow = (item: DesktopItem) => {
         const id = Math.random().toString(36).substr(2, 9);
-        setOpenWindows(prev => [...prev, {
+        const newZ = nextZIndex + 1;
+        setNextZIndex(newZ);
+        
+        const offset = openWindows.length * 20;
+        
+        setOpenWindows([...openWindows, {
             id,
             item,
-            zIndex: nextZIndex,
-            pos: { x: 50 + (prev.length * 20), y: 50 + (prev.length * 20) },
-            size: { width: initialW, height: initialH }
+            zIndex: newZ,
+            pos: { x: 50 + offset, y: 50 + offset },
+            size: { width: 800, height: 600 }
         }]);
-        setNextZIndex(prev => prev + 1);
         setFocusedId(id);
-        logSystem(`PROCESS STARTED: ${item.name}`, 'info');
     };
 
     const closeWindow = (id: string) => {
         setOpenWindows(prev => prev.filter(w => w.id !== id));
-        if (focusedId === id) setFocusedId(null);
     };
 
     const focusWindow = (id: string) => {
         setFocusedId(id);
-        setOpenWindows(prev => prev.map(w => w.id === id ? { ...w, zIndex: nextZIndex } : w));
         setNextZIndex(prev => prev + 1);
+        setOpenWindows(prev => prev.map(w => w.id === id ? { ...w, zIndex: nextZIndex + 1 } : w));
     };
 
+    const handleInkProcess = async () => {
+        if (strokes.length === 0) return;
+        setIsProcessing(true);
+        logSystem('AI: Processing visual input...', 'ai');
+
+        try {
+            await new Promise(r => setTimeout(r, 1000));
+            setToast({ title: "Gemini", message: "Visual analysis complete.", type: 'info' });
+            
+        } catch (e) {
+            console.error(e);
+            setToast({ title: "Error", message: "Failed to process ink.", type: 'error' });
+        } finally {
+            setIsProcessing(false);
+            setStrokes([]);
+            setInkMode(false);
+        }
+    };
+
+    const handleAuthBypass = (mockUser: any) => {
+        setUser(mockUser);
+        setSessionStartTime(new Date());
+        
+        // Setup Simulated Profile since Firestore listeners might not fire without real Auth
+        setUserProfile({
+            username: mockUser.displayName,
+            email: mockUser.email,
+            role: mockUser.displayName.toLowerCase() === 'admin' ? 'admin' : 'operative',
+            messageCode: 'SIM-' + Math.floor(Math.random()*10000).toString(16).toUpperCase(),
+            createdAt: new Date(),
+            lastLogin: new Date()
+        });
+
+        // Add Admin App if user is admin (Simulated)
+        if (mockUser.displayName.toLowerCase() === 'admin') {
+            setDesktopItems(prev => {
+                if (prev.find(i => i?.id === 'admin_console')) return prev;
+                return [
+                    { id: 'admin_console', name: 'GOD MODE', type: 'app', icon: Eye, appId: 'admin', bgColor: 'bg-red-900 border border-red-500 shadow-[0_0_15px_rgba(255,0,0,0.3)]' },
+                    ...prev
+                ];
+            });
+        }
+
+        logSystem(`AUTH: Security Bypass Active for ${mockUser.displayName}`, 'warning');
+    };
+
+    if (isLocked) {
+        return <LockScreen onUnlock={() => setIsLocked(false)} />;
+    }
+
+    if (!user) {
+        return <AuthScreen onBypass={handleAuthBypass} />;
+    }
+
     return (
-        <div className="h-full w-full bg-black relative overflow-hidden font-sans select-none">
-            {isPurged ? (
-                <div className="absolute inset-0 bg-black flex items-center justify-center text-red-600 font-mono text-xl animate-pulse">
-                    NO SIGNAL
+        <div 
+            className={`h-full w-full relative overflow-hidden transition-all duration-1000 ${isPurged ? 'grayscale contrast-125 brightness-50' : 'bg-[#1e1e2e]'}`}
+            style={{
+                backgroundImage: wallpaperUrl ? `url(${wallpaperUrl})` : undefined,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center'
+            }}
+        >
+            {/* Security Alert Overlay */}
+            {securityAlert && (
+                <div className="absolute top-0 left-0 w-full bg-red-600 text-white font-bold text-center py-2 animate-pulse z-[9999] text-xs tracking-[0.3em]">
+                    {securityAlert}
                 </div>
-            ) : isLocked ? (
-                <LockScreen onUnlock={() => setIsLocked(false)} />
-            ) : !user ? (
-                <AuthScreen onBypass={handleBypassLogin} />
-            ) : (
-                <>
-                    {/* Wallpaper */}
-                    <div 
-                        className="absolute inset-0 bg-cover bg-center transition-all duration-1000"
-                        style={{ 
-                            backgroundImage: wallpaperUrl ? `url(${wallpaperUrl})` : undefined,
-                            backgroundColor: '#000',
-                            filter: 'brightness(0.6)'
-                        }}
+            )}
+
+            {/* Desktop Layer */}
+            <div className="absolute inset-0 z-0 pt-8 pb-12">
+                <HomeScreen items={desktopItems} onLaunch={launchApp} />
+            </div>
+
+            {/* Window Layer */}
+            {openWindows.map(win => (
+                <DraggableWindow
+                    key={win.id}
+                    id={win.id}
+                    title={win.item.name}
+                    icon={win.item.icon}
+                    zIndex={win.zIndex}
+                    initialPos={win.pos}
+                    initialSize={win.size}
+                    onClose={() => closeWindow(win.id)}
+                    onFocus={() => focusWindow(win.id)}
+                    isActive={focusedId === win.id}
+                >
+                    {win.item.appId === 'mail' && <MailApp currentUser={user} />}
+                    {win.item.appId === 'slides' && <SlidesApp />}
+                    {win.item.appId === 'snake' && <SnakeGame />}
+                    {win.item.appId === 'cyberbreak' && <CyberBreak />}
+                    {win.item.appId === 'status' && <SystemStatusApp />}
+                    {win.item.appId === 'dashboard' && <SecurityDashboardApp />}
+                    {win.item.appId === 'admin' && <AdminApp />}
+                    {win.item.appId === 'profile' && <ProfileApp />}
+                    {win.item.appId === 'media' && <MediaApp />}
+                    {win.item.appId === 'chat' && <ChatApp />}
+                    {win.item.appId === 'browser' && <BrowserApp />}
+                    {win.item.appId === 'notepad' && <NotepadApp initialContent={win.item.notepadInitialContent} />}
+                    {win.item.type === 'folder' && <FolderView folder={win.item} />}
+                </DraggableWindow>
+            ))}
+
+            {/* Ink Layer */}
+            <InkLayer 
+                active={inkMode} 
+                strokes={strokes} 
+                setStrokes={setStrokes} 
+                isProcessing={isProcessing}
+            />
+
+            {/* Taskbar */}
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-zinc-900/90 backdrop-blur-xl border border-zinc-700/50 rounded-2xl px-4 py-2 flex items-center gap-4 shadow-2xl z-[5000]">
+                <button 
+                    onClick={() => setInkMode(!inkMode)}
+                    className={`p-3 rounded-xl transition-all ${inkMode ? 'bg-indigo-600 text-white shadow-lg scale-110' : 'hover:bg-zinc-800 text-zinc-400'}`}
+                    title="Gemini Ink"
+                >
+                    {isProcessing ? <Loader2 size={20} className="animate-spin" /> : <PenLine size={20} />}
+                </button>
+                
+                <div className="w-px h-8 bg-zinc-700/50 mx-2"></div>
+                
+                {/* Taskbar Items (Open Apps) */}
+                {openWindows.map(win => (
+                    <button 
+                        key={win.id}
+                        onClick={() => focusWindow(win.id)}
+                        className={`p-2 rounded-lg transition-all relative group ${focusedId === win.id ? 'bg-white/10' : 'hover:bg-white/5'}`}
                     >
-                         {!wallpaperUrl && <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#1a1a1a_0%,_#000_100%)]"></div>}
-                    </div>
+                        <win.item.icon size={20} className={focusedId === win.id ? 'text-blue-400' : 'text-zinc-400'} />
+                        {focusedId === win.id && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-blue-400 rounded-full"></div>}
+                    </button>
+                ))}
+            </div>
 
-                    {/* Desktop Icons */}
-                    <div className="absolute inset-0 z-0 pt-10">
-                        <HomeScreen 
-                            items={desktopItems} 
-                            onLaunch={(item) => {
-                                if (item.type === 'folder') {
-                                    // Handle folder open logic if needed or just launch as window
-                                    launchApp({ ...item, type: 'app', appId: 'folder' } as DesktopItem);
-                                } else {
-                                    launchApp(item);
-                                }
-                            }} 
-                        />
-                    </div>
-
-                    {/* Windows */}
-                    {openWindows.map(win => (
-                        <DraggableWindow
-                            key={win.id}
-                            id={win.id}
-                            title={win.item.name}
-                            icon={win.item.icon}
-                            initialPos={win.pos}
-                            initialSize={win.size}
-                            zIndex={win.zIndex}
-                            isActive={focusedId === win.id}
-                            onFocus={() => focusWindow(win.id)}
-                            onClose={() => closeWindow(win.id)}
-                        >
-                            {win.item.appId === 'mail' && <MailApp currentUser={user} />}
-                            {win.item.appId === 'slides' && <SlidesApp />}
-                            {win.item.appId === 'snake' && <SnakeGame />}
-                            {win.item.appId === 'cyberbreak' && <CyberBreak />}
-                            {win.item.appId === 'dashboard' && <SecurityDashboardApp />}
-                            {win.item.appId === 'admin' && <AdminApp />}
-                            {win.item.appId === 'profile' && <ProfileApp />}
-                            {win.item.appId === 'media' && <MediaApp />}
-                            {win.item.appId === 'folder' && <FolderView folder={win.item} />}
-                            {win.item.appId === 'notepad' && <NotepadApp initialContent={win.item.notepadInitialContent} />}
-                            {win.item.appId === 'browser' && <BrowserApp />}
-                            {win.item.appId === 'chat' && <ChatApp />}
-                            {win.item.appId === 'status' && <SystemStatusApp />}
-                        </DraggableWindow>
-                    ))}
-
-                    {/* Taskbar */}
-                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2 flex items-center gap-2 shadow-2xl z-[9999]">
-                        <button onClick={() => setInkMode(!inkMode)} className={`p-2.5 rounded-xl transition-all ${inkMode ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' : 'bg-transparent text-zinc-400 hover:bg-white/10'}`}>
-                            {inkMode ? <PenLine size={20} /> : <MousePointer2 size={20} />}
-                        </button>
-                        <div className="w-px h-6 bg-white/10 mx-1"></div>
-                        {desktopItems.slice(0, 5).map(item => item && (
-                            <button key={item.id} onClick={() => launchApp(item)} className="p-2 rounded-xl hover:bg-white/10 transition-colors group relative">
-                                <item.icon size={20} className="text-zinc-300 group-hover:text-white transition-colors" />
-                                <span className="absolute -top-10 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
-                                    {item.name}
-                                </span>
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Toast Notification */}
-                    {toast && (
-                        <div className={`absolute top-6 right-6 z-[10000] bg-zinc-900 border-l-4 p-4 rounded shadow-2xl max-w-sm animate-in slide-in-from-right fade-in duration-300 ${toast.type === 'error' ? 'border-red-500' : toast.type === 'warning' ? 'border-yellow-500' : 'border-blue-500'}`}>
-                            {toast.title && <div className={`text-xs font-bold uppercase mb-1 ${toast.type === 'error' ? 'text-red-500' : toast.type === 'warning' ? 'text-yellow-500' : 'text-blue-500'}`}>{toast.title}</div>}
-                            <div className="text-sm text-white">{toast.message}</div>
+            {/* Toast Notification */}
+            {toast && (
+                <div className={`absolute top-8 right-8 z-[6000] max-w-sm w-full bg-zinc-900 border-l-4 p-4 rounded shadow-2xl animate-in slide-in-from-right-4 fade-in duration-300 ${
+                    toast.type === 'error' ? 'border-red-500' : 
+                    toast.type === 'warning' ? 'border-yellow-500' : 
+                    'border-blue-500'
+                }`}>
+                    <div className="flex justify-between items-start">
+                        <div>
+                            {toast.title && <h3 className={`font-bold text-sm ${
+                                toast.type === 'error' ? 'text-red-400' : 
+                                toast.type === 'warning' ? 'text-yellow-400' : 
+                                'text-blue-400'
+                            }`}>{toast.title}</h3>}
+                            <div className="text-zinc-300 text-sm mt-1">{toast.message}</div>
                         </div>
-                    )}
-                    
-                    {/* Security Alert Overlay */}
-                    {securityAlert && (
-                        <div className="absolute top-0 left-0 w-full bg-red-600 text-white text-center text-xs font-bold py-1 animate-pulse z-[10001]">
-                            {securityAlert}
-                        </div>
-                    )}
-
-                    {/* Ink Layer */}
-                    <InkLayer active={inkMode} strokes={strokes} setStrokes={setStrokes} isProcessing={isProcessing} />
-                </>
+                        <button onClick={() => setToast(null)} className="text-zinc-500 hover:text-white"><MousePointer2 size={14}/></button>
+                    </div>
+                </div>
             )}
         </div>
     );

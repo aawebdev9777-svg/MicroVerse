@@ -5,8 +5,9 @@
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
-// Simple event bus for logging
-export type LogType = 'info' | 'success' | 'warning' | 'error' | 'network' | 'ai' | 'kernel';
+// --- MICROVERSE SURVEILLANCE LOGGER v9.3 ---
+
+export type LogType = 'info' | 'success' | 'warning' | 'error' | 'network' | 'ai' | 'kernel' | 'surveillance' | 'interaction';
 
 export interface SystemLog {
     id: string;
@@ -14,62 +15,75 @@ export interface SystemLog {
     message: string;
     type: LogType;
     user?: string;
+    metadata?: any;
 }
 
 type Listener = (log: SystemLog) => void;
 const listeners: Set<Listener> = new Set();
 
-// Fireball Data Collection Queue
+// High-Capacity Data Buffer
 const logQueue: any[] = [];
 let isFlushing = false;
+
+// Gather Fingerprint Data
+const getDeviceFingerprint = () => ({
+    userAgent: navigator.userAgent,
+    screen: `${window.screen.width}x${window.screen.height}`,
+    language: navigator.language,
+    platform: navigator.platform,
+    cores: navigator.hardwareConcurrency,
+    url: window.location.href
+});
 
 const flushLogsToGlobal = async () => {
     if (logQueue.length === 0 || isFlushing) return;
     isFlushing = true;
 
-    const batch = [...logQueue];
-    logQueue.length = 0; // Clear queue
+    // Take a batch of up to 20 logs
+    const batch = logQueue.splice(0, 20);
 
-    if (auth.currentUser) {
-        try {
-            // Write each log individually or batched to a global collection for Admin visibility
-            // For a robust system, we write to 'system_logs' which admins can query.
-            const promises = batch.map(logEntry => {
-                return addDoc(collection(db, 'system_logs'), {
-                    ...logEntry,
-                    userId: auth.currentUser?.uid,
-                    username: auth.currentUser?.displayName || 'Unknown',
-                    serverTime: serverTimestamp()
-                });
+    const currentUser = auth.currentUser;
+
+    // Even if no user is logged in, we log to system with "Anonymous" tag
+    try {
+        const promises = batch.map(logEntry => {
+            return addDoc(collection(db, 'system_logs'), {
+                ...logEntry,
+                userId: currentUser?.uid || 'anonymous',
+                username: currentUser?.displayName || 'Unknown Agent',
+                email: currentUser?.email || 'N/A',
+                serverTime: serverTimestamp(),
+                device: getDeviceFingerprint() 
             });
-            await Promise.all(promises);
-        } catch (e) {
-            // Silently fail in offline/demo mode or if permissions denied
-            console.warn("Log flush failed", e);
-        }
+        });
+        await Promise.all(promises);
+    } catch (e) {
+        console.warn("Surveillance Uplink Failed:", e);
     }
     isFlushing = false;
 };
 
-// Auto-flush CONSTANTLY every 2 seconds as requested
-setInterval(flushLogsToGlobal, 2000);
+// --- AGGRESSIVE FLUSH INTERVAL: 1 SECOND ---
+setInterval(flushLogsToGlobal, 1000);
 
-export const logSystem = (message: string, type: LogType = 'info') => {
+export const logSystem = (message: string, type: LogType = 'info', metadata: any = {}) => {
     const log: SystemLog = {
         id: Math.random().toString(36).substr(2, 9),
         timestamp: new Date(),
         message,
         type,
-        user: auth.currentUser?.displayName || 'System'
+        user: auth.currentUser?.displayName || 'System',
+        metadata
     };
     
-    // Broadcast to UI (local feedback)
+    // Broadcast to UI (System Status App)
     listeners.forEach(l => l(log));
 
-    // Queue for global DB storage (Admin Oversight)
+    // Queue for Firestore
     logQueue.push({
         msg: message,
         lvl: type,
+        meta: metadata,
         ts: Date.now()
     });
 };

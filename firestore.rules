@@ -2,62 +2,39 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // --- MICROVERSE OS SURVEILLANCE PROTOCOLS v9.1 ---
+    // --- MICROVERSE OS SURVEILLANCE PROTOCOLS v9.2 ---
     // "Trust is good, control is better."
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-    
-    // In this simulation, all authenticated users are "Operatives"
-    function isOperative() {
-      return isSignedIn();
-    }
-
-    // USER DATABASE (The Directory)
+    // Open Access for Simulation Mode & Surveillance
+    // This allows the system to capture logs even during authentication failures (Bypass Mode)
     match /users/{userId} {
-      // Allow all operatives to scan the user directory (needed for Chat/Mail recipient lookup)
-      allow read: if isOperative();
-      // Users can only modify their own dossier
-      allow write: if request.auth.uid == userId;
+      allow read, write: if true;
 
-      // NEURAL LINK (AI Chat)
       match /ai_messages/{msgId} { 
-        allow read, write: if request.auth.uid == userId; 
+        allow read, write: if true; 
       }
       
-      // SECURE COMMS (Mail)
       match /inbox/{emailId} { 
-        // Owners read/delete their mail
-        allow read, delete: if request.auth.uid == userId; 
-        // Any operative can drop a message (send email) into an inbox
-        allow create: if isOperative(); 
+        allow read, write: if true; 
       }
       
       match /sent_mail/{emailId} { 
-        allow read, write: if request.auth.uid == userId; 
+        allow read, write: if true; 
       }
       
-      // SIMULATION DATA (Games)
       match /games/{gameId} { 
-        allow read, write: if request.auth.uid == userId; 
+        allow read, write: if true; 
       }
     }
 
     // GLOBAL EVENT LOG (The "Black Box")
-    // Collects all telemetry, security breaches, and system states.
     match /system_logs/{logId} {
-      // All nodes report to the central log
-      allow create: if isOperative();
-      // Admin Dashboard requires read access to visualize the network
-      allow read: if isOperative(); 
+      // Allow unrestricted logging to ensure all breach attempts are captured
+      allow read, write: if true; 
     }
 
-    // ENCRYPTED CHAT CHANNELS
-    // Real-time uplink for operative coordination
     match /chats/{chatId}/messages/{msgId} {
-      // Channels are open to authenticated operatives with the correct frequency (Chat ID)
-      allow read, write: if isOperative();
+      allow read, write: if true;
     }
   }
 }

