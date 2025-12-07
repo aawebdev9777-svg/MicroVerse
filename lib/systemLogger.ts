@@ -5,7 +5,7 @@
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "./firebase";
 
-// --- MICROVERSE SURVEILLANCE LOGGER v9.3 ---
+// --- MICROVERSE SURVEILLANCE LOGGER v9.4 ---
 
 export type LogType = 'info' | 'success' | 'warning' | 'error' | 'network' | 'ai' | 'kernel' | 'surveillance' | 'interaction';
 
@@ -42,16 +42,17 @@ const flushLogsToGlobal = async () => {
     // Take a batch of up to 20 logs
     const batch = logQueue.splice(0, 20);
 
-    const currentUser = auth.currentUser;
-
-    // Even if no user is logged in, we log to system with "Anonymous" tag
     try {
         const promises = batch.map(logEntry => {
             return addDoc(collection(db, 'system_logs'), {
-                ...logEntry,
-                userId: currentUser?.uid || 'anonymous',
-                username: currentUser?.displayName || 'Unknown Agent',
-                email: currentUser?.email || 'N/A',
+                message: logEntry.msg,
+                type: logEntry.lvl,
+                metadata: logEntry.meta || {},
+                // Use captured user info from the moment of the event
+                username: logEntry.capturedUser || 'Unknown Agent',
+                userId: logEntry.capturedUid || 'anonymous',
+                email: logEntry.capturedEmail || 'N/A',
+                timestamp: new Date(logEntry.ts),
                 serverTime: serverTimestamp(),
                 device: getDeviceFingerprint() 
             });
@@ -67,24 +68,38 @@ const flushLogsToGlobal = async () => {
 setInterval(flushLogsToGlobal, 1000);
 
 export const logSystem = (message: string, type: LogType = 'info', metadata: any = {}) => {
+    // Capture state synchronously at the moment of logging
+    const currentUser = auth.currentUser;
+    
+    // Logic to determine the "Actor" of the log
+    // 1. Current logged in user
+    // 2. "target" specified in metadata (useful for login attempts)
+    // 3. Fallback to System
+    const actorName = currentUser?.displayName || metadata?.target || 'System';
+    const actorUid = currentUser?.uid || (metadata?.target ? 'unauthenticated_target' : 'system_core');
+    const actorEmail = currentUser?.email || metadata?.email || 'N/A';
+
     const log: SystemLog = {
         id: Math.random().toString(36).substr(2, 9),
         timestamp: new Date(),
         message,
         type,
-        user: auth.currentUser?.displayName || 'System',
+        user: actorName,
         metadata
     };
     
     // Broadcast to UI (System Status App)
     listeners.forEach(l => l(log));
 
-    // Queue for Firestore
+    // Queue for Firestore with captured identity
     logQueue.push({
         msg: message,
         lvl: type,
         meta: metadata,
-        ts: Date.now()
+        ts: Date.now(),
+        capturedUser: actorName,
+        capturedUid: actorUid,
+        capturedEmail: actorEmail
     });
 };
 

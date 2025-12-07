@@ -7,7 +7,7 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 import { getAnalytics } from "firebase/analytics";
 
-// --- FIREBASE CONFIGURATION ---
+// --- FIREBASE CONFIGURATION (ENCRYPTED-OS) ---
 const firebaseConfig = {
   apiKey: "AIzaSyBEihYVgLZLfQRTSdDDQEn7UQR50SZoiXE",
   authDomain: "encrypted-os.firebaseapp.com",

