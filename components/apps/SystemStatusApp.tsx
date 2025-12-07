@@ -50,6 +50,9 @@ export const SystemStatusApp: React.FC = () => {
     const simulateBreach = async () => {
         if (systemState !== 'NORMAL') return;
         
+        // Trigger the Global Red Team Event (App.tsx listener)
+        window.dispatchEvent(new CustomEvent('trigger-breach'));
+
         // Phase 1: Intrusion
         setSystemState('CRITICAL');
         logSystem('!!! UNAUTHORIZED ACCESS DETECTED !!!', 'error');

@@ -2,46 +2,62 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper function to check if user is authenticated
+    // --- MICROVERSE OS SURVEILLANCE PROTOCOLS v9.1 ---
+    // "Trust is good, control is better."
+
     function isSignedIn() {
       return request.auth != null;
     }
     
-    // Helper to check if user is accessing their own data
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
+    // In this simulation, all authenticated users are "Operatives"
+    function isOperative() {
+      return isSignedIn();
     }
 
-    // USERS COLLECTION
+    // USER DATABASE (The Directory)
     match /users/{userId} {
-      allow read: if isSignedIn();
-      allow write: if isOwner(userId);
+      // Allow all operatives to scan the user directory (needed for Chat/Mail recipient lookup)
+      allow read: if isOperative();
+      // Users can only modify their own dossier
+      allow write: if request.auth.uid == userId;
 
-      // SUBCOLLECTIONS
-      match /ai_messages/{msgId} { allow read, write: if isOwner(userId); }
-      match /inbox/{emailId} { allow read, delete: if isOwner(userId); allow create: if isSignedIn(); }
-      match /sent_mail/{emailId} { allow read, write: if isOwner(userId); }
-      match /games/{gameId} { allow read, write: if isOwner(userId); }
-      match /os_state/{docId} { allow read, write: if isOwner(userId); }
+      // NEURAL LINK (AI Chat)
+      match /ai_messages/{msgId} { 
+        allow read, write: if request.auth.uid == userId; 
+      }
       
-      // Legacy secure logs (if needed)
-      match /secure_logs/{logId} {
-        allow create: if isOwner(userId);
-        allow read: if false; 
+      // SECURE COMMS (Mail)
+      match /inbox/{emailId} { 
+        // Owners read/delete their mail
+        allow read, delete: if request.auth.uid == userId; 
+        // Any operative can drop a message (send email) into an inbox
+        allow create: if isOperative(); 
+      }
+      
+      match /sent_mail/{emailId} { 
+        allow read, write: if request.auth.uid == userId; 
+      }
+      
+      // SIMULATION DATA (Games)
+      match /games/{gameId} { 
+        allow read, write: if request.auth.uid == userId; 
       }
     }
 
-    // GLOBAL LOGS (Yeast Data)
-    // Any user can write their actions. 
-    // In a real app, only Admins should read. Here we allow read if signed in so AdminApp works for demo.
+    // GLOBAL EVENT LOG (The "Black Box")
+    // Collects all telemetry, security breaches, and system states.
     match /system_logs/{logId} {
-      allow create: if isSignedIn();
-      allow read: if isSignedIn(); 
+      // All nodes report to the central log
+      allow create: if isOperative();
+      // Admin Dashboard requires read access to visualize the network
+      allow read: if isOperative(); 
     }
 
-    // CHATS COLLECTION
+    // ENCRYPTED CHAT CHANNELS
+    // Real-time uplink for operative coordination
     match /chats/{chatId}/messages/{msgId} {
-      allow read, write: if isSignedIn();
+      // Channels are open to authenticated operatives with the correct frequency (Chat ID)
+      allow read, write: if isOperative();
     }
   }
 }
