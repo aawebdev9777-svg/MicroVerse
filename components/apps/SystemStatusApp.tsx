@@ -210,7 +210,7 @@ export const SystemStatusApp: React.FC = () => {
 
              {/* Status Footer */}
             <div className={`border-t pt-1 mt-1 flex justify-between text-zinc-600 px-2 ${systemState === 'CRITICAL' ? 'border-red-900' : 'border-green-900/30'}`}>
-                <span className={systemState === 'CRITICAL' ? 'text-red-500 animate-pulse font-bold' : ''}>
+                <span className="text-red-500 animate-pulse font-bold">
                     STATUS: {systemState}
                 </span>
                 <span>UPTIME: 99.999%</span>
