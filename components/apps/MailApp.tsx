@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useEffect } from 'react';
-import { Mail, Trash2, Inbox, Send, Plus, ArrowLeft, RefreshCw, UserCheck, Shield, Sparkles } from 'lucide-react';
+import { Mail, Trash2, Inbox, Send, Plus, ArrowLeft, RefreshCw, UserCheck, Shield, Sparkles, UploadCloud, FileText } from 'lucide-react';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, onSnapshot, orderBy, deleteDoc, doc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { logSystem } from '../../lib/systemLogger';
@@ -35,6 +35,7 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
     const [body, setBody] = useState('');
     const [sending, setSending] = useState(false);
     const [recipientStatus, setRecipientStatus] = useState<'idle' | 'checking' | 'found' | 'not-found'>('idle');
+    const [dragActive, setDragActive] = useState(false);
 
     // AI Draft Listener
     useEffect(() => {
@@ -154,6 +155,30 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
             console.error(e);
         }
     };
+    
+    const handleDrag = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.type === 'dragenter' || e.type === 'dragover') {
+            setDragActive(true);
+        } else if (e.type === 'dragleave') {
+            setDragActive(false);
+        }
+    };
+
+    const handleDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+        if (view !== 'compose') return;
+
+        const files = Array.from(e.dataTransfer.files) as File[];
+        if (files.length > 0) {
+             const names = files.map(f => f.name).join(', ');
+             setBody(prev => prev + `\n\n[ATTACHMENT ENCRYPTED: ${names}]`);
+             logSystem('MAIL: Attachment linked to encrypted envelope.', 'info');
+        }
+    };
 
     const displayedEmails = view === 'sent' ? sentEmails : inboxEmails;
 
@@ -204,7 +229,20 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
                 
                 {/* Compose View */}
                 {view === 'compose' ? (
-                    <div className="flex-1 p-8 overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-300">
+                    <div 
+                        className="flex-1 p-8 overflow-y-auto animate-in fade-in slide-in-from-bottom-4 duration-300 relative"
+                        onDragEnter={handleDrag}
+                        onDragLeave={handleDrag}
+                        onDragOver={handleDrag}
+                        onDrop={handleDrop}
+                    >
+                        {dragActive && (
+                            <div className="absolute inset-0 z-50 bg-blue-900/40 backdrop-blur-sm border-4 border-dashed border-blue-500 flex flex-col items-center justify-center text-white pointer-events-none">
+                                <UploadCloud size={64} className="mb-4 text-blue-400 animate-bounce" />
+                                <h2 className="text-2xl font-bold tracking-widest">ATTACH TO ENVELOPE</h2>
+                            </div>
+                        )}
+
                         <div className="max-w-3xl mx-auto bg-zinc-950/80 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden backdrop-blur-xl">
                             <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 flex justify-between items-center">
                                 <h2 className="text-lg font-bold text-white flex items-center gap-2 tracking-wide">
@@ -270,7 +308,7 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
                         {/* List */}
                         <div className={`${selectedEmail ? 'hidden lg:flex' : 'flex'} flex-col w-full lg:w-80 border-r border-zinc-800 bg-zinc-950/60 backdrop-blur-md`}>
                             <div className="p-3 border-b border-zinc-800 text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex justify-between items-center bg-black/20">
-                                <span>{view} PROTOCOL ({displayedEmails.length})</span>
+                                <span>{view === 'sent' ? 'OUTGOING LOG' : 'INCOMING LOG'} ({displayedEmails.length})</span>
                             </div>
                             <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-800">
                                 {displayedEmails.length === 0 ? (
@@ -287,7 +325,8 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
                                         >
                                             <div className="flex justify-between items-baseline mb-1">
                                                 <span className={`text-sm truncate max-w-[140px] ${!email.read && view === 'inbox' ? 'text-blue-100 font-bold' : 'text-zinc-400'}`}>
-                                                    {view === 'sent' ? `To: ${email.toEmail.split('@')[0]}` : email.fromEmail.split('@')[0]}
+                                                    {view === 'sent' ? <span className="text-zinc-500 text-[10px] mr-1 uppercase">TO:</span> : <span className="text-zinc-500 text-[10px] mr-1 uppercase">FROM:</span>}
+                                                    {view === 'sent' ? email.toEmail.split('@')[0] : email.fromEmail.split('@')[0]}
                                                 </span>
                                                 <span className="text-[9px] text-zinc-600 flex-shrink-0 font-mono">
                                                     {email.createdAt?.toDate ? email.createdAt.toDate().toLocaleDateString() : 'Now'}
