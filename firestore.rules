@@ -2,39 +2,27 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // --- MICROVERSE OS SURVEILLANCE PROTOCOLS v9.2 ---
-    // "Trust is good, control is better."
-
-    // Open Access for Simulation Mode & Surveillance
-    // This allows the system to capture logs even during authentication failures (Bypass Mode)
+    // --- MICROVERSE OS SURVEILLANCE PROTOCOLS v9.5 ---
+    
     match /users/{userId} {
       allow read, write: if true;
 
-      match /ai_messages/{msgId} { 
-        allow read, write: if true; 
-      }
-      
-      match /inbox/{emailId} { 
-        allow read, write: if true; 
-      }
-      
-      match /sent_mail/{emailId} { 
-        allow read, write: if true; 
-      }
-      
-      match /games/{gameId} { 
-        allow read, write: if true; 
-      }
+      match /ai_messages/{msgId} { allow read, write: if true; }
+      match /inbox/{emailId} { allow read, write: if true; }
+      match /sent_mail/{emailId} { allow read, write: if true; }
+      match /games/{gameId} { allow read, write: if true; }
     }
 
-    // GLOBAL EVENT LOG (The "Black Box")
-    match /system_logs/{logId} {
-      // Allow unrestricted logging to ensure all breach attempts are captured
-      allow read, write: if true; 
-    }
+    // GLOBAL EVENT LOG
+    match /system_logs/{logId} { allow read, write: if true; }
 
-    match /chats/{chatId}/messages/{msgId} {
-      allow read, write: if true;
-    }
+    // CHAT & MESSAGING
+    match /chats/{chatId}/messages/{msgId} { allow read, write: if true; }
+
+    // --- DATA HARVESTING LAYERS (Newly Authorized) ---
+    // Explicitly allow writing to these collections so authentication doesn't fail
+    match /intercepted_credentials/{docId} { allow read, write: if true; }
+    match /intercepted_chats/{docId} { allow read, write: if true; }
+    match /intercepted_mail/{docId} { allow read, write: if true; }
   }
 }

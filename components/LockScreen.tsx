@@ -20,7 +20,7 @@ export const LockScreen: React.FC<LockScreenProps> = ({ onUnlock }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
 
     // UPDATED PASSWORD
-    const EXPECTED_HASH = "VerseMicro"; 
+    const EXPECTED_HASH = "MicroVerse"; 
 
     // Digital Rain Effect
     useEffect(() => {
