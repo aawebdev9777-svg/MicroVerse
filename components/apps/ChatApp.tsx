@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, Plus, Hash, MessageSquare, Lock, Search, Flame, EyeOff, Globe, Users, Key } from 'lucide-react';
+import { Send, Bot, User, Sparkles, Plus, Hash, MessageSquare, Lock, Search, Flame, EyeOff, Globe, Users, Key, FileText, UploadCloud, Scan, CheckCircle, AlertTriangle } from 'lucide-react';
 import { getAiClient } from '../../lib/gemini';
 import { GenerateContentResponse } from '@google/genai';
 import { collection, addDoc, query, orderBy, onSnapshot, serverTimestamp, where, or, and, getDocs } from 'firebase/firestore';
@@ -17,6 +17,9 @@ interface Message {
     createdAt: any;
     isBurn?: boolean;
     viewed?: boolean;
+    attachment?: string;
+    attachmentType?: 'image' | 'file';
+    fileName?: string;
 }
 
 interface ChatSession {
@@ -43,6 +46,10 @@ export const ChatApp: React.FC = () => {
     const [isTyping, setIsTyping] = useState(false);
     const [isBurnMode, setIsBurnMode] = useState(false);
     
+    // --- DRAG DROP STATE ---
+    const [dragActive, setDragActive] = useState(false);
+    const [scanning, setScanning] = useState(false);
+
     // --- DIRECTORY STATE ---
     // Default view mode is 'directory' to see people first
     const [viewMode, setViewMode] = useState<'chats' | 'directory'>('directory');
@@ -214,6 +221,75 @@ export const ChatApp: React.FC = () => {
         setActiveChatId(user.uid);
     };
 
+    // --- DRAG AND DROP HANDLERS ---
+    const handleDrag = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.type === 'dragenter' || e.type === 'dragover') {
+            setDragActive(true);
+        } else if (e.type === 'dragleave') {
+            setDragActive(false);
+        }
+    };
+
+    const handleDrop = async (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDragActive(false);
+        
+        if (!activeChatId || !currentUser) return;
+
+        // Cast to File[] to ensure type safety in loop
+        const files = Array.from(e.dataTransfer.files) as File[];
+        if (files.length === 0) return;
+
+        // Security Scan Simulation
+        setScanning(true);
+        logSystem('SECURITY: Scanning incoming payload for malware...', 'warning');
+        
+        // Simulate intense scan
+        await new Promise(r => setTimeout(r, 2000));
+        
+        setScanning(false);
+        logSystem('SECURITY: Payload Clean. Encrypting...', 'success');
+
+        for (const file of files) {
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                const base64 = event.target?.result as string;
+                
+                // Construct payload
+                const payload: any = {
+                    senderId: currentUser.uid,
+                    text: '',
+                    attachment: base64,
+                    attachmentType: file.type.startsWith('image/') ? 'image' : 'file',
+                    fileName: file.name,
+                    isBurn: isBurnMode,
+                    createdAt: serverTimestamp()
+                };
+
+                if (activeChatId === 'ai') {
+                     await addDoc(collection(db, 'users', currentUser.uid, 'ai_messages'), payload);
+                     // AI Response stub for files
+                     setTimeout(async () => {
+                         await addDoc(collection(db, 'users', currentUser.uid, 'ai_messages'), {
+                            senderId: 'ai',
+                            text: "File received. Analysis complete: No threats detected.",
+                            createdAt: serverTimestamp()
+                        });
+                     }, 1000);
+
+                } else {
+                     const chatId = [currentUser.uid, activeChatId].sort().join('_');
+                     await addDoc(collection(db, 'chats', chatId, 'messages'), payload);
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+
     // --- MAIN APP RENDER ---
     return (
         <div className="h-full w-full flex bg-black text-zinc-100 font-sans overflow-hidden">
@@ -221,8 +297,8 @@ export const ChatApp: React.FC = () => {
             <div className="w-80 border-r border-zinc-800 bg-zinc-950 flex flex-col flex-shrink-0">
                 <div className="p-4 border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md">
                     <div className="flex items-center gap-2 mb-4">
-                        <Sparkles className="text-purple-400" size={20} />
-                        <span className="font-bold tracking-wide text-lg text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">VOID UPLINK</span>
+                        <Lock className="text-purple-500" size={20} />
+                        <span className="font-bold tracking-wide text-lg text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-indigo-400">ENCRYPTED CHAT</span>
                     </div>
                     
                     <div className="flex bg-zinc-900 p-1 rounded-lg border border-zinc-800 mb-4">
@@ -317,8 +393,38 @@ export const ChatApp: React.FC = () => {
                 </div>
             </div>
 
-            {/* Chat Area */}
-            <div className="flex-1 flex flex-col bg-zinc-900/20 relative">
+            {/* Chat Area - Drag Target */}
+            <div 
+                className="flex-1 flex flex-col bg-zinc-900/20 relative"
+                onDragEnter={handleDrag}
+                onDragLeave={handleDrag}
+                onDragOver={handleDrag}
+                onDrop={handleDrop}
+            >
+                {/* Drag Overlay */}
+                {dragActive && !scanning && (
+                    <div className="absolute inset-0 z-50 bg-purple-900/40 backdrop-blur-sm border-4 border-dashed border-purple-500 flex flex-col items-center justify-center text-white animate-in fade-in duration-200">
+                        <UploadCloud size={64} className="mb-4 text-purple-400 animate-bounce" />
+                        <h2 className="text-2xl font-bold tracking-widest">SECURE UPLOAD DETECTED</h2>
+                        <p className="text-purple-300 font-mono mt-2">Drop files to initiate encryption protocol</p>
+                    </div>
+                )}
+
+                {/* Scanning Overlay */}
+                {scanning && (
+                     <div className="absolute inset-0 z-50 bg-black/90 flex flex-col items-center justify-center text-white">
+                        <div className="relative">
+                            <Scan size={80} className="text-emerald-500 animate-pulse" />
+                            <div className="absolute inset-0 border-t-2 border-emerald-400 animate-[spin_2s_linear_infinite]"></div>
+                        </div>
+                        <h2 className="text-xl font-bold mt-6 text-emerald-500 tracking-[0.2em] animate-pulse">BIO-DIGITAL MALWARE SCAN</h2>
+                        <div className="w-64 h-1 bg-zinc-800 rounded-full mt-4 overflow-hidden">
+                             <div className="h-full bg-emerald-500 w-full animate-[progress_1.5s_ease-in-out]"></div>
+                        </div>
+                        <p className="text-xs text-zinc-500 font-mono mt-2 uppercase">Sanitizing Payload...</p>
+                    </div>
+                )}
+
                 {/* Chat Background Pattern */}
                 <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:20px_20px] pointer-events-none"></div>
 
@@ -365,7 +471,7 @@ export const ChatApp: React.FC = () => {
                                             </div>
                                             
                                             <div className="flex flex-col gap-1">
-                                                <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-md relative overflow-hidden ${
+                                                <div className={`p-4 rounded-2xl text-sm leading-relaxed shadow-md relative overflow-hidden min-w-[120px] ${
                                                     isMe 
                                                         ? 'bg-zinc-800 text-zinc-100 rounded-tr-sm border border-zinc-700' 
                                                         : msg.isBurn 
@@ -378,6 +484,20 @@ export const ChatApp: React.FC = () => {
                                                         </div>
                                                     ) : (
                                                         <>
+                                                            {/* Render Attachments */}
+                                                            {msg.attachment && (
+                                                                <div className="mb-3 rounded overflow-hidden border border-white/10 bg-black/30">
+                                                                    {msg.attachmentType === 'image' ? (
+                                                                        <img src={msg.attachment} alt="attachment" className="max-w-xs max-h-60 object-cover" />
+                                                                    ) : (
+                                                                        <div className="p-3 flex items-center gap-3">
+                                                                            <FileText size={24} className="text-blue-400" />
+                                                                            <div className="text-xs truncate max-w-[150px]">{msg.fileName || 'Encrypted File'}</div>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+
                                                             {msg.text}
                                                             {msg.isBurn && <Flame size={12} className="absolute top-2 right-2 text-orange-500 opacity-50" />}
                                                         </>
@@ -406,6 +526,9 @@ export const ChatApp: React.FC = () => {
                         {/* Input */}
                         <div className="p-6 bg-zinc-950 border-t border-zinc-800 z-20">
                             <div className={`flex items-center gap-3 bg-zinc-900 border rounded-xl px-4 py-3 transition-colors ${isBurnMode ? 'border-orange-900/50 focus-within:border-orange-500' : 'border-zinc-700 focus-within:border-purple-500'}`}>
+                                <button className="text-zinc-500 hover:text-zinc-300 transition-colors" title="Drag & Drop supported">
+                                    <Plus size={20} />
+                                </button>
                                 <input 
                                     value={input}
                                     onChange={(e) => setInput(e.target.value)}
@@ -423,14 +546,18 @@ export const ChatApp: React.FC = () => {
                 ) : (
                     <div className="h-full flex flex-col items-center justify-center text-zinc-500 select-none p-8 text-center">
                         <div className="w-20 h-20 bg-zinc-900 rounded-full flex items-center justify-center mb-6 border border-zinc-800 shadow-xl">
-                            <Users size={32} className="opacity-50" />
+                            <Lock size={32} className="opacity-50 text-emerald-500" />
                         </div>
                         <h2 className="text-xl font-bold text-white mb-2">SECURE MESSAGING HUB</h2>
-                        <p className="max-w-md text-sm">
-                            Select an operative from the <span className="text-white font-bold">DIRECTORY</span> to establish an encrypted uplink. 
-                            <br/><br/>
-                            Verify identities via <span className="font-mono bg-zinc-900 px-1 rounded text-emerald-500">ID CODES</span> before sharing sensitive intel.
-                        </p>
+                        <div className="max-w-md text-sm space-y-4">
+                            <p>
+                                Select an operative from the <span className="text-white font-bold">DIRECTORY</span> to establish an encrypted uplink. 
+                            </p>
+                            <div className="flex items-center justify-center gap-4 text-xs font-mono text-zinc-600">
+                                <span className="flex items-center gap-1"><CheckCircle size={10} className="text-emerald-500"/> AES-256</span>
+                                <span className="flex items-center gap-1"><AlertTriangle size={10} className="text-yellow-500"/> LOGGING ACTIVE</span>
+                            </div>
+                        </div>
                     </div>
                 )}
             </div>

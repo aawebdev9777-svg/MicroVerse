@@ -32,7 +32,7 @@ import { logSystem } from './lib/systemLogger';
 const INITIAL_DESKTOP_ITEMS: DesktopItem[] = [
     { id: 'status', name: 'System Core', type: 'app', icon: Terminal, appId: 'status', bgColor: 'bg-black border border-green-900/50 shadow-[0_0_15px_rgba(0,255,0,0.1)]' },
     { id: 'dashboard', name: 'Overwatch', type: 'app', icon: LayoutDashboard, appId: 'dashboard', bgColor: 'bg-zinc-800 border border-zinc-600' },
-    { id: 'chat', name: 'Void Uplink', type: 'app', icon: MessageCircle, appId: 'chat', bgColor: 'bg-gradient-to-br from-purple-600 to-indigo-600' },
+    { id: 'chat', name: 'Encrypted Chat', type: 'app', icon: MessageCircle, appId: 'chat', bgColor: 'bg-gradient-to-br from-purple-600 to-indigo-600' },
     { id: 'browser', name: 'Net Runner', type: 'app', icon: Globe, appId: 'browser', bgColor: 'bg-gradient-to-br from-zinc-900 to-black border border-red-900/30' },
     { id: 'mail', name: 'Secure Comms', type: 'app', icon: Mail, appId: 'mail', bgColor: 'bg-gradient-to-br from-blue-400 to-blue-700' },
     { id: 'media', name: 'Vault', type: 'app', icon: Image, appId: 'media', bgColor: 'bg-gradient-to-br from-pink-600 to-rose-600' },
@@ -189,6 +189,18 @@ export const App: React.FC = () => {
         };
     }, []); // eslint-disable-line
 
+    const showToast = useCallback((message: string, title?: string, success: boolean = false) => {
+        setToast({
+            message,
+            title,
+            type: success ? 'info' : 'error'
+        });
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+        }
+        timeoutRef.current = window.setTimeout(() => setToast(null), 4000);
+    }, []);
+
     const handleBypassLogin = (mockUser: any) => {
         setUser(mockUser);
         
@@ -246,5 +258,160 @@ export const App: React.FC = () => {
                     }
                     
                     const newItems = [...prev];
-                    let lastIdx = -1;
+                    const indices = newItems.map((item, idx) => item ? idx : -1).filter(i => i !== -1);
+                    if (indices.length > 0) {
+                        const randomIdx = indices[Math.floor(Math.random() * indices.length)];
+                        newItems[randomIdx] = null;
+                        logSystem(`DELETING ASSET: ${prev[randomIdx]?.name}`, 'error');
+                    }
+                    return newItems;
+                });
+            }, 200);
+        };
+
+        window.addEventListener('trigger-breach', handleBreach);
+        return () => window.removeEventListener('trigger-breach', handleBreach);
+    }, []);
+
+    const launchApp = (item: DesktopItem) => {
+        if (item.type === 'folder') return;
+        
+        let initialW = 800;
+        let initialH = 600;
+        
+        if (item.appId === 'chat') {
+            initialW = 1000;
+            initialH = 750;
+        }
+
+        const id = Math.random().toString(36).substr(2, 9);
+        setOpenWindows(prev => [...prev, {
+            id,
+            item,
+            zIndex: nextZIndex,
+            pos: { x: 50 + (prev.length * 20), y: 50 + (prev.length * 20) },
+            size: { width: initialW, height: initialH }
+        }]);
+        setNextZIndex(prev => prev + 1);
+        setFocusedId(id);
+        logSystem(`PROCESS STARTED: ${item.name}`, 'info');
+    };
+
+    const closeWindow = (id: string) => {
+        setOpenWindows(prev => prev.filter(w => w.id !== id));
+        if (focusedId === id) setFocusedId(null);
+    };
+
+    const focusWindow = (id: string) => {
+        setFocusedId(id);
+        setOpenWindows(prev => prev.map(w => w.id === id ? { ...w, zIndex: nextZIndex } : w));
+        setNextZIndex(prev => prev + 1);
+    };
+
+    return (
+        <div className="h-full w-full bg-black relative overflow-hidden font-sans select-none">
+            {isPurged ? (
+                <div className="absolute inset-0 bg-black flex items-center justify-center text-red-600 font-mono text-xl animate-pulse">
+                    NO SIGNAL
+                </div>
+            ) : isLocked ? (
+                <LockScreen onUnlock={() => setIsLocked(false)} />
+            ) : !user ? (
+                <AuthScreen onBypass={handleBypassLogin} />
+            ) : (
+                <>
+                    {/* Wallpaper */}
+                    <div 
+                        className="absolute inset-0 bg-cover bg-center transition-all duration-1000"
+                        style={{ 
+                            backgroundImage: wallpaperUrl ? `url(${wallpaperUrl})` : undefined,
+                            backgroundColor: '#000',
+                            filter: 'brightness(0.6)'
+                        }}
+                    >
+                         {!wallpaperUrl && <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#1a1a1a_0%,_#000_100%)]"></div>}
+                    </div>
+
+                    {/* Desktop Icons */}
+                    <div className="absolute inset-0 z-0 pt-10">
+                        <HomeScreen 
+                            items={desktopItems} 
+                            onLaunch={(item) => {
+                                if (item.type === 'folder') {
+                                    // Handle folder open logic if needed or just launch as window
+                                    launchApp({ ...item, type: 'app', appId: 'folder' } as DesktopItem);
+                                } else {
+                                    launchApp(item);
+                                }
+                            }} 
+                        />
+                    </div>
+
+                    {/* Windows */}
+                    {openWindows.map(win => (
+                        <DraggableWindow
+                            key={win.id}
+                            id={win.id}
+                            title={win.item.name}
+                            icon={win.item.icon}
+                            initialPos={win.pos}
+                            initialSize={win.size}
+                            zIndex={win.zIndex}
+                            isActive={focusedId === win.id}
+                            onFocus={() => focusWindow(win.id)}
+                            onClose={() => closeWindow(win.id)}
+                        >
+                            {win.item.appId === 'mail' && <MailApp currentUser={user} />}
+                            {win.item.appId === 'slides' && <SlidesApp />}
+                            {win.item.appId === 'snake' && <SnakeGame />}
+                            {win.item.appId === 'cyberbreak' && <CyberBreak />}
+                            {win.item.appId === 'dashboard' && <SecurityDashboardApp />}
+                            {win.item.appId === 'admin' && <AdminApp />}
+                            {win.item.appId === 'profile' && <ProfileApp />}
+                            {win.item.appId === 'media' && <MediaApp />}
+                            {win.item.appId === 'folder' && <FolderView folder={win.item} />}
+                            {win.item.appId === 'notepad' && <NotepadApp initialContent={win.item.notepadInitialContent} />}
+                            {win.item.appId === 'browser' && <BrowserApp />}
+                            {win.item.appId === 'chat' && <ChatApp />}
+                            {win.item.appId === 'status' && <SystemStatusApp />}
+                        </DraggableWindow>
+                    ))}
+
+                    {/* Taskbar */}
+                    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-zinc-900/80 backdrop-blur-md border border-white/10 rounded-2xl px-4 py-2 flex items-center gap-2 shadow-2xl z-[9999]">
+                        <button onClick={() => setInkMode(!inkMode)} className={`p-2.5 rounded-xl transition-all ${inkMode ? 'bg-purple-500 text-white shadow-[0_0_15px_rgba(168,85,247,0.5)]' : 'bg-transparent text-zinc-400 hover:bg-white/10'}`}>
+                            {inkMode ? <PenLine size={20} /> : <MousePointer2 size={20} />}
+                        </button>
+                        <div className="w-px h-6 bg-white/10 mx-1"></div>
+                        {desktopItems.slice(0, 5).map(item => item && (
+                            <button key={item.id} onClick={() => launchApp(item)} className="p-2 rounded-xl hover:bg-white/10 transition-colors group relative">
+                                <item.icon size={20} className="text-zinc-300 group-hover:text-white transition-colors" />
+                                <span className="absolute -top-10 left-1/2 -translate-x-1/2 bg-black text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap">
+                                    {item.name}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Toast Notification */}
+                    {toast && (
+                        <div className={`absolute top-6 right-6 z-[10000] bg-zinc-900 border-l-4 p-4 rounded shadow-2xl max-w-sm animate-in slide-in-from-right fade-in duration-300 ${toast.type === 'error' ? 'border-red-500' : toast.type === 'warning' ? 'border-yellow-500' : 'border-blue-500'}`}>
+                            {toast.title && <div className={`text-xs font-bold uppercase mb-1 ${toast.type === 'error' ? 'text-red-500' : toast.type === 'warning' ? 'text-yellow-500' : 'text-blue-500'}`}>{toast.title}</div>}
+                            <div className="text-sm text-white">{toast.message}</div>
+                        </div>
+                    )}
                     
+                    {/* Security Alert Overlay */}
+                    {securityAlert && (
+                        <div className="absolute top-0 left-0 w-full bg-red-600 text-white text-center text-xs font-bold py-1 animate-pulse z-[10001]">
+                            {securityAlert}
+                        </div>
+                    )}
+
+                    {/* Ink Layer */}
+                    <InkLayer active={inkMode} strokes={strokes} setStrokes={setStrokes} isProcessing={isProcessing} />
+                </>
+            )}
+        </div>
+    );
+};

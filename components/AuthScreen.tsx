@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import { Shield, UserPlus, LogIn, AlertCircle, Cpu, Lock, User, Terminal } from 'lucide-react';
+import { Shield, UserPlus, LogIn, AlertCircle, Cpu, Lock, User, Terminal, Key } from 'lucide-react';
 import { logSystem } from '../lib/systemLogger';
 
 interface AuthScreenProps {
@@ -28,21 +28,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
         setError(null);
         setLoading(true);
 
-        if (!username.trim()) {
-            setError("Username identity required.");
+        const cleanUsername = username.trim();
+
+        if (!cleanUsername) {
+            setError("Identity required.");
             setLoading(false);
             return;
         }
 
-        const internalEmail = getInternalEmail(username);
+        // --- ADMIN CREDENTIAL GATEKEEPER ---
+        if (cleanUsername.toLowerCase() === 'admin') {
+            const REQUIRED_PASS = 'hers ring told';
+            if (password !== REQUIRED_PASS) {
+                setError("CRITICAL: INVALID ADMINISTRATIVE PASSPHRASE.");
+                logSystem(`SECURITY ALERT: Failed Admin login attempt for IP [REDACTED]`, 'error');
+                setLoading(false);
+                return;
+            }
+        }
+        // -----------------------------------
+
+        const internalEmail = getInternalEmail(cleanUsername);
 
         try {
             if (isLogin) {
-                logSystem(`AUTH: Handshaking for user: ${username}...`, 'network');
+                logSystem(`AUTH: Handshaking for user: ${cleanUsername}...`, 'network');
                 await signInWithEmailAndPassword(auth, internalEmail, password);
                 logSystem('AUTH: Access Granted. Identity confirmed.', 'success');
             } else {
-                logSystem(`AUTH: Registering new operative: ${username}...`, 'network');
+                logSystem(`AUTH: Registering new operative: ${cleanUsername}...`, 'network');
                 const userCredential = await createUserWithEmailAndPassword(auth, internalEmail, password);
                 
                 const uid = userCredential.user.uid;
@@ -51,15 +65,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                 // Save to Firestore
                 await setDoc(doc(db, 'users', uid), {
                     email: internalEmail,
-                    username: username,
+                    username: cleanUsername,
                     messageCode: messageCode,
                     createdAt: new Date(),
-                    role: username.toLowerCase() === 'admin' ? 'admin' : 'operative'
+                    // Grant Admin Role if username is Admin
+                    role: cleanUsername.toLowerCase() === 'admin' ? 'admin' : 'operative'
                 }, { merge: true });
 
                 // Update Auth Profile
                 await updateProfile(userCredential.user, {
-                    displayName: username
+                    displayName: cleanUsername
                 });
 
                 logSystem('AUTH: Identity registration complete. Public Key Generated.', 'success');
@@ -69,17 +84,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
             
             let msg = "Authentication Failed.";
             
-            // Common User Errors
-            if (err.code === 'auth/user-not-found' || err.code === 'auth/invalid-email' || err.code === 'auth/invalid-credential') msg = "Identity Not Found or Invalid Credentials.";
-            if (err.code === 'auth/wrong-password') msg = "Invalid Credentials.";
-            if (err.code === 'auth/email-already-in-use') msg = "Username Taken.";
-            if (err.code === 'auth/weak-password') msg = "Password Too Weak.";
-            
-            // Configuration Errors (The specific error user reported)
-            if (err.code === 'auth/configuration-not-found') msg = "CONFIG ERROR: Email/Password Sign-in is disabled in Firebase Console.";
-            if (err.code === 'auth/network-request-failed') msg = "Network Error. Check connection.";
-            if (err.code === 'auth/api-key-not-valid') msg = "Invalid API Key in configuration.";
-            
+            // Auto-Switch to Register if user not found during login (UX improvement)
+            if (isLogin && err.code === 'auth/user-not-found') {
+                 // Try to register automatically if specific credentials provided
+                 if (cleanUsername.toLowerCase() === 'admin' && password === 'hers ring told') {
+                     setIsLogin(false);
+                     handleSubmit(e); // Retry as register
+                     return;
+                 }
+                 msg = "Identity Not Found. Please Register.";
+            } else if (!isLogin && err.code === 'auth/email-already-in-use') {
+                 msg = "Identity already exists. Please Login.";
+            } else {
+                if (err.code === 'auth/invalid-email' || err.code === 'auth/invalid-credential') msg = "Invalid Credentials.";
+                if (err.code === 'auth/wrong-password') msg = "Invalid Credentials.";
+                if (err.code === 'auth/weak-password') msg = "Password Too Weak.";
+                if (err.code === 'auth/configuration-not-found') msg = "CONFIG ERROR: Email/Password Sign-in is disabled in Firebase Console.";
+                if (err.code === 'auth/network-request-failed') msg = "Network Error. Check connection.";
+            }
+
             setError(msg);
             logSystem(`AUTH ERROR: ${msg} (${err.code})`, 'error');
         } finally {
@@ -142,7 +165,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onBypass }) => {
                         <div className="space-y-1">
                             <label className="text-[10px] uppercase text-zinc-500 font-bold tracking-wider">Access Key (Password)</label>
                             <div className="relative group">
-                                <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-emerald-500 transition-colors" />
+                                <Key size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-600 group-focus-within:text-emerald-500 transition-colors" />
                                 <input 
                                     type="password" 
                                     required
