@@ -119,6 +119,9 @@ export const ChatApp: React.FC = () => {
                     setMessages(msgs);
                 }
                 scrollToBottom();
+            }, (error) => {
+                console.error("ChatApp AI Listener Error:", error);
+                setMessages([{ id: 'err', senderId: 'ai', text: 'Uplink unstable. Reconnecting...', createdAt: new Date() }]);
             });
 
         } else {
@@ -137,6 +140,8 @@ export const ChatApp: React.FC = () => {
                 });
                 setMessages(msgs);
                 scrollToBottom();
+            }, (error) => {
+                console.error("ChatApp Listener Error:", error);
             });
         }
 

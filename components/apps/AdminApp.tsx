@@ -36,6 +36,7 @@ export const AdminApp: React.FC = () => {
     const [selectedUser, setSelectedUser] = useState<UserData | null>(null);
     const [userLogs, setUserLogs] = useState<GlobalLog[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     // Global Logs Subscription
     useEffect(() => {
@@ -45,15 +46,24 @@ export const AdminApp: React.FC = () => {
             limit(100)
         );
 
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const fetchedLogs: GlobalLog[] = [];
-            snapshot.forEach((doc) => {
-                const data = doc.data();
-                fetchedLogs.push({ id: doc.id, ...data } as GlobalLog);
-            });
-            setLogs(fetchedLogs);
-            setLoading(false);
-        });
+        // SAFE SNAPSHOT LISTENER
+        const unsubscribe = onSnapshot(q, 
+            (snapshot) => {
+                const fetchedLogs: GlobalLog[] = [];
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    fetchedLogs.push({ id: doc.id, ...data } as GlobalLog);
+                });
+                setLogs(fetchedLogs);
+                setLoading(false);
+                setError(null);
+            },
+            (err) => {
+                console.warn("AdminApp: Log subscription failed", err);
+                setError("ACCESS DENIED: SECURE LOGS ENCRYPTED");
+                setLoading(false);
+            }
+        );
 
         return () => unsubscribe();
     }, []);
@@ -61,13 +71,17 @@ export const AdminApp: React.FC = () => {
     // Fetch All Users
     useEffect(() => {
         const fetchUsers = async () => {
-             const q = query(collection(db, 'users'));
-             const snap = await getDocs(q);
-             const userList: UserData[] = [];
-             snap.forEach(doc => {
-                 userList.push({ id: doc.id, ...doc.data() } as UserData);
-             });
-             setUsers(userList);
+            try {
+                 const q = query(collection(db, 'users'));
+                 const snap = await getDocs(q);
+                 const userList: UserData[] = [];
+                 snap.forEach(doc => {
+                     userList.push({ id: doc.id, ...doc.data() } as UserData);
+                 });
+                 setUsers(userList);
+            } catch (e) {
+                console.warn("AdminApp: User fetch failed", e);
+            }
         };
         fetchUsers();
     }, [view]);
@@ -76,22 +90,23 @@ export const AdminApp: React.FC = () => {
     useEffect(() => {
         if (!selectedUser) return;
         
-        // We filter the client-side logs for immediate feedback, 
-        // but in a real app we'd query Firestore for specific user logs
-        // Here we just re-use the global stream + fetch history
         const fetchUserHistory = async () => {
-            const q = query(
-                collection(db, 'system_logs'), 
-                where('userId', '==', selectedUser.id),
-                orderBy('ts', 'desc'),
-                limit(50)
-            );
-            const snap = await getDocs(q);
-            const history: GlobalLog[] = [];
-            snap.forEach(doc => {
-                history.push({ id: doc.id, ...doc.data() } as GlobalLog);
-            });
-            setUserLogs(history);
+            try {
+                const q = query(
+                    collection(db, 'system_logs'), 
+                    where('userId', '==', selectedUser.id),
+                    orderBy('ts', 'desc'),
+                    limit(50)
+                );
+                const snap = await getDocs(q);
+                const history: GlobalLog[] = [];
+                snap.forEach(doc => {
+                    history.push({ id: doc.id, ...doc.data() } as GlobalLog);
+                });
+                setUserLogs(history);
+            } catch (e) {
+                console.warn("AdminApp: User history fetch failed", e);
+            }
         };
         fetchUserHistory();
     }, [selectedUser]);
@@ -126,6 +141,7 @@ export const AdminApp: React.FC = () => {
             {/* Content Area */}
             <div className="flex-1 overflow-hidden flex flex-col relative">
                 {loading && <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20 text-red-500 animate-pulse">ESTABLISHING ROOT UPLINK...</div>}
+                {error && <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20 text-red-500 font-bold">{error}</div>}
                 
                 {view === 'logs' ? (
                     <>

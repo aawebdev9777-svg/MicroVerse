@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
 */
 import React, { useEffect, useRef, useState } from 'react';
-import { Shield, Activity, HardDrive, Wifi, Cpu } from 'lucide-react';
-import { subscribeToLogs, SystemLog } from '../../lib/systemLogger';
+import { Shield, Activity, Cpu, Wifi } from 'lucide-react';
+import { subscribeToLogs } from '../../lib/systemLogger';
 
 export const SecurityDashboardApp: React.FC = () => {
     const mapCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -12,7 +12,6 @@ export const SecurityDashboardApp: React.FC = () => {
     const [lastLog, setLastLog] = useState<string>('System Ready');
 
     useEffect(() => {
-        // Subscribe to real logs to drive the visualization
         return subscribeToLogs((log) => {
             setLogCount(c => c + 1);
             setLastLog(log.message);
@@ -26,10 +25,9 @@ export const SecurityDashboardApp: React.FC = () => {
         const canvas = mapCanvasRef.current;
         if(!canvas) return;
         
-        let color = '#3b82f6'; // blue
+        let color = '#3b82f6'; 
         if (type === 'error' || type === 'warning') color = '#ef4444';
         if (type === 'success') color = '#10b981';
-        if (type === 'ai') color = '#a855f7';
 
         pulses.current.push({
             x: Math.random() * canvas.width,
@@ -39,19 +37,28 @@ export const SecurityDashboardApp: React.FC = () => {
         });
     };
 
-    // Animation Loop
+    // OPTIMIZED: Throttled Animation Loop (30 FPS)
     useEffect(() => {
         const canvas = mapCanvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        const drawMap = () => {
-            // Fade background slightly for trail effect
-            ctx.fillStyle = 'rgba(9, 9, 11, 0.2)'; 
+        let animationFrameId: number;
+        let lastTime = 0;
+        const fpsInterval = 1000 / 30; // Limit to 30 FPS
+
+        const drawMap = (timestamp: number) => {
+            animationFrameId = requestAnimationFrame(drawMap);
+
+            const elapsed = timestamp - lastTime;
+            if (elapsed < fpsInterval) return;
+            lastTime = timestamp - (elapsed % fpsInterval);
+
+            // Clear with heavy fade to reduce redraw artifacts complexity
+            ctx.fillStyle = 'rgba(9, 9, 11, 0.3)'; 
             ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-            // Draw pulses
             for(let i = pulses.current.length - 1; i >= 0; i--) {
                 const p = pulses.current[i];
                 
@@ -62,20 +69,13 @@ export const SecurityDashboardApp: React.FC = () => {
                 ctx.globalAlpha = p.life;
                 ctx.stroke();
 
-                ctx.beginPath();
-                ctx.arc(p.x, p.y, 2, 0, Math.PI * 2);
-                ctx.fillStyle = p.color;
-                ctx.fill();
-
-                p.life -= 0.02;
+                p.life -= 0.05; // Faster fade out to clean up array quicker
                 if(p.life <= 0) pulses.current.splice(i, 1);
             }
             ctx.globalAlpha = 1;
-
-            requestAnimationFrame(drawMap);
         };
-        const anim = requestAnimationFrame(drawMap);
-        return () => cancelAnimationFrame(anim);
+        animationFrameId = requestAnimationFrame(drawMap);
+        return () => cancelAnimationFrame(animationFrameId);
     }, []);
 
     return (
@@ -103,11 +103,10 @@ export const SecurityDashboardApp: React.FC = () => {
             <div className="flex-1 relative border-b border-zinc-800 bg-black">
                 <div className="absolute top-4 left-4 z-10 space-y-1">
                     <div className="text-[10px] text-zinc-500 uppercase tracking-widest">Activity Map</div>
-                    <div className="text-xl font-bold text-white tracking-tighter">{logCount.toString().padStart(6, '0')} <span className="text-xs text-zinc-600 font-normal">EVENTS</span></div>
+                    <div className="text-xl font-bold text-white tracking-tighter">{logCount} <span className="text-xs text-zinc-600 font-normal">EVENTS</span></div>
                 </div>
                 <canvas ref={mapCanvasRef} width={800} height={300} className="w-full h-full block opacity-80" />
                 
-                {/* Overlay Grid lines */}
                 <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
             </div>
 
@@ -129,17 +128,17 @@ export const SecurityDashboardApp: React.FC = () => {
                     <div className="space-y-1">
                          <div className="flex justify-between text-[10px]">
                             <span className="text-zinc-500">CPU</span>
-                            <span className="text-emerald-400">12%</span>
+                            <span className="text-emerald-400">OPT</span>
                          </div>
                          <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
                              <div className="h-full bg-emerald-500 w-[12%]"></div>
                          </div>
                          <div className="flex justify-between text-[10px] mt-2">
                             <span className="text-zinc-500">MEM</span>
-                            <span className="text-blue-400">4.2GB</span>
+                            <span className="text-blue-400">2.1GB</span>
                          </div>
                          <div className="w-full h-1 bg-zinc-800 rounded-full overflow-hidden">
-                             <div className="h-full bg-blue-500 w-[45%]"></div>
+                             <div className="h-full bg-blue-500 w-[25%]"></div>
                          </div>
                     </div>
                 </div>

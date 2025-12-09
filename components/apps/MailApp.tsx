@@ -63,6 +63,8 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
             const mails: RealEmail[] = [];
             snapshot.forEach(d => mails.push({ id: d.id, folder: 'inbox', ...d.data() } as RealEmail));
             setInboxEmails(mails);
+        }, (error) => {
+            console.error("MailApp Inbox Error:", error);
         });
         return () => unsub();
     }, [currentUser]);
@@ -78,6 +80,8 @@ export const MailApp: React.FC<MailAppProps> = ({ currentUser }) => {
             const mails: RealEmail[] = [];
             snapshot.forEach(d => mails.push({ id: d.id, folder: 'sent', ...d.data() } as RealEmail));
             setSentEmails(mails);
+        }, (error) => {
+            console.error("MailApp Sent Error:", error);
         });
         return () => unsub();
     }, [currentUser]);

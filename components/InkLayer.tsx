@@ -17,15 +17,12 @@ export const InkLayer: React.FC<InkLayerProps> = ({ active, strokes, setStrokes,
     const [isDrawing, setIsDrawing] = useState(false);
     const currentStroke = useRef<Stroke>([]);
 
-    // Function to draw a single stroke with the new volumetric style
+    // Optimized Single-Pass Drawing
     const drawSingleStroke = (ctx: CanvasRenderingContext2D, stroke: Stroke) => {
         if (stroke.length < 2) return;
 
         const path = new Path2D();
-        // Move to the first point
         path.moveTo(stroke[0].x, stroke[0].y);
-        
-        // Use simple line segments for responsiveness. 
         for (let i = 1; i < stroke.length; i++) {
             path.lineTo(stroke[i].x, stroke[i].y);
         }
@@ -34,43 +31,32 @@ export const InkLayer: React.FC<InkLayerProps> = ({ active, strokes, setStrokes,
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
 
-        // --- Pass 1: Contrast Shadow (helps visibility on white backgrounds) ---
-        // A very faint, wide dark stroke underneath to act as a shadow/contrast booster
-        ctx.lineWidth = 14;
-        ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)'; 
-        ctx.stroke(path);
-
-        // --- Pass 2: Wide White Glow ---
-        ctx.lineWidth = 12;
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.stroke(path);
-
-        // --- Pass 3: Core Solid White Stroke ---
-        ctx.lineWidth = 7;
+        // Single pass with shadow built-in for better performance
+        ctx.shadowBlur = 8;
+        ctx.shadowColor = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 4;
         ctx.strokeStyle = '#ffffff';
         ctx.stroke(path);
+        
+        // Reset shadow to avoid affecting other ops if any
+        ctx.shadowBlur = 0; 
     };
 
-    // Main render function that clears and redraws everything
     const renderCanvas = useCallback(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         if (!ctx) return;
 
-        // Clear
         ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-        // Draw all committed strokes
         strokes.forEach(stroke => drawSingleStroke(ctx, stroke));
 
-        // Draw the active stroke being drawn right now
         if (isDrawing && currentStroke.current.length > 0) {
             drawSingleStroke(ctx, currentStroke.current);
         }
     }, [strokes, isDrawing]);
 
-    // Resize handler
+    // Resize Handler
     useEffect(() => {
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -92,29 +78,27 @@ export const InkLayer: React.FC<InkLayerProps> = ({ active, strokes, setStrokes,
         return () => window.removeEventListener('resize', resize);
     }, [renderCanvas]);
 
-    // Trigger render when strokes change externally
+    // External stroke updates
     useEffect(() => {
         if (!isProcessing) {
             renderCanvas();
         }
     }, [strokes, renderCanvas, isProcessing]);
 
-    // Pulsating animation loop when processing
+    // Throttled Pulsating Loop (only when processing)
     useEffect(() => {
         if (!isProcessing) return;
 
         let animationFrameId: number;
         const start = Date.now();
+        const canvas = canvasRef.current;
+        const ctx = canvas?.getContext('2d');
 
         const animate = () => {
-            const canvas = canvasRef.current;
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            if (!ctx) return;
+            if (!ctx || !canvas) return;
 
             const now = Date.now();
-            // Create a smooth sine wave for opacity between 0.4 and 1.0
-            const pulse = (Math.sin((now - start) / 250) + 1) / 3.33 + 0.4;
+            const pulse = (Math.sin((now - start) / 250) + 1) / 4 + 0.5;
 
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ctx.save();
@@ -126,11 +110,9 @@ export const InkLayer: React.FC<InkLayerProps> = ({ active, strokes, setStrokes,
         };
 
         animate();
-
         return () => {
             cancelAnimationFrame(animationFrameId);
-            // Ensure we do one final clean render when stopping
-            renderCanvas();
+            renderCanvas(); // Restore full opacity
         };
     }, [isProcessing, strokes, renderCanvas]);
 
@@ -154,25 +136,12 @@ export const InkLayer: React.FC<InkLayerProps> = ({ active, strokes, setStrokes,
     const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
         if (!active || !isDrawing || isProcessing) return;
         
-        const getCoalescedEvents = (e: React.PointerEvent<HTMLCanvasElement>) => {
-             // @ts-ignore 
-             if (typeof e.getCoalescedEvents === 'function') {
-                 // @ts-ignore
-                 return e.getCoalescedEvents();
-             }
-             return [e];
-        };
-
-        const events = getCoalescedEvents(e);
-        const rect = canvasRef.current!.getBoundingClientRect();
-
-        for (let i = 0; i < events.length; i++) {
-             currentStroke.current.push({
-                x: events[i].clientX - rect.left,
-                y: events[i].clientY - rect.top
-            });
-        }
-
+        // Skip coalesced events for performance in simple drawing
+        const point = getPoint(e);
+        currentStroke.current.push(point);
+        
+        // Simple throttle: only render if we have significant movement or every X events?
+        // For now, renderCanvas is optimized enough.
         renderCanvas();
     };
 
